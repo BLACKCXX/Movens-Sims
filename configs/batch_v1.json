@@ -1,0 +1,17 @@
+{
+  "version": "batch_v1",
+  "source_project": "/root/autodl-tmp/Movens-Interact",
+  "manifest": "configs/manifest.json",
+  "run_root": "runs/batch_v1",
+  "renderer_version": "mujoco_3.7.0_egl_v1",
+  "evaluator_version": "visible_silhouette_v2",
+  "prompt_version": "diagnostic_v1",
+  "camera_model": "pinhole_no_crop_no_distortion",
+  "fit": {"max_evaluations": 600, "max_seconds": 900, "seed": 20261107, "width": 320, "height": 240, "stages": ["camera", "layout", "size", "appearance"]},
+  "gpt": {"model": "gpt-4.1-2025-04-14", "env_file": "/root/autodl-tmp/api.env", "base_url": "https://api.openai.com/v1", "max_calls": 12, "rounds": 2, "timeout_seconds": 60, "max_retries": 1, "max_output_tokens": 2200},
+  "render": {"duration_s": 5, "fps": 30, "use_source_resolution": true},
+  "diagnostic": {"duration_s": 1, "fps": 30, "external_forces": "zero", "preserve_initial_velocities": true},
+  "thresholds": {"object_iou_min": 0.85, "edge_distance_px_max": 4, "centroid_error_px_max": 5, "support_gap_m_max": 0.002, "penetration_m_max": 0.001, "translation_m_max": 0.005, "rotation_deg_max": 5, "min_visible_fraction": 0.6, "cloth_coverage_min": 0.98},
+  "threshold_basis": "Engineering image tolerances at 640x480, 1mm contact diagnostic tolerance and 5mm/5deg one-second rest tolerance. Fixed for all episodes; not measured real physical ground truth.",
+  "concurrency": 1
+}

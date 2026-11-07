@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "movens-sim"
+version = "0.1.1"
+description = "Traceable initial static tabletop reconstruction from real ego observations"
+requires-python = ">=3.12,<3.13"
+dependencies = ["mujoco==3.7.0", "numpy==1.26.4", "scipy==1.14.1", "opencv-python-headless==4.10.0.84", "Pillow==11.0.0", "openai==2.54.0", "jsonschema==4.23.0", "python-dotenv==1.0.1"]
+
+[project.scripts]
+movens-sim = "movens_sim.pipeline:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

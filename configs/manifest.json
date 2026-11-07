@@ -1,0 +1,58 @@
+{
+  "version": "manifest_v1",
+  "created_utc": "2026-11-07T02:05:24.314323+00:00",
+  "frozen": true,
+  "source_project": "/root/autodl-tmp/Movens-Interact",
+  "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+  "dataset": "nvidia/GR00T-N1.7-AppleToPlate",
+  "source_batch": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z",
+  "selection_rule": "Ascending distinct episode ID among complete registered active-batch inputs. Grasp success is not used. Latest registered valid candidate per episode.",
+  "entries": [
+    {
+      "episode": 0,
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000000.mp4",
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/videos/main_rgb.mp4",
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "registration": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/baseline_video_index.json"
+    },
+    {
+      "episode": 1,
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000001.mp4",
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/videos/main_rgb.mp4",
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "registration": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/baseline_video_index.json"
+    },
+    {
+      "episode": 2,
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000002.mp4",
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/videos/main_rgb.mp4",
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "registration": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/baseline_video_index.json"
+    },
+    {
+      "episode": 3,
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000003/offset_000mm",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000003/offset_000mm/scene",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000003.mp4",
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000003/offset_000mm/videos/main_rgb.mp4",
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "registration": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/baseline_video_index.json"
+    },
+    {
+      "episode": 4,
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000004/offset_000mm",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000004/offset_000mm/scene",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000004.mp4",
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000004/offset_000mm/videos/main_rgb.mp4",
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "registration": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/baseline_video_index.json"
+    }
+  ],
+  "selection_sha256": "a396feef573510547e9d57d6dbbf75ceaa663c8ec8ff5c7840e16e829a7b1266"
+}
