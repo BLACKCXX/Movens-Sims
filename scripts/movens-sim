@@ -7,4 +7,6 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export PYTHONPATH="$TASK_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 cd "$TASK_ROOT"
-exec "$TASK_ROOT/.venv/bin/python" -B -u -m movens_sim.pipeline "$@"
+# New work uses the Terra configuration. A later explicit --config overrides it,
+# preserving the immutable model/config identity of existing batch_v1 results.
+exec "$TASK_ROOT/.venv/bin/python" -B -u -m movens_sim.pipeline --config configs/batch_v2.json "$@"

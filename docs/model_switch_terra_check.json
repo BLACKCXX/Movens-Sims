@@ -1,0 +1,60 @@
+{
+  "checked_utc": "2026-11-07T03:43:23.831508+00:00",
+  "requested_model": "gpt-6.1-terra",
+  "api": "Responses",
+  "official_model_documentation": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+  "config": "configs/batch_v2.json",
+  "model_available": true,
+  "vision_and_structured_output_verified": true,
+  "scene_changes_applied": false,
+  "optimization_started": false,
+  "request_sha256": "ac8a23de238587a93463039438f1396e5a4482efb97cda5c5667f358cfd1ac42",
+  "schema_sha256": "46705991f84751cff3063900311d954fb800bbbfda176a3571f7a809fbda7ffa",
+  "images": [
+    {
+      "identity": "REAL INITIAL RGB",
+      "path": "runs/batch_v1/episode_000000/reference.png",
+      "sha256": "742147ac6f2c477ae4dce8c27e1a2a4db1bde2220bd94f48d0358a8bd1519a69"
+    },
+    {
+      "identity": "CURRENT SIMULATION RGB",
+      "path": "runs/batch_v1/episode_000000/optimized_ego.png",
+      "sha256": "86d6ab43279f4a107352bdb2280c569c745ff68a1c706bb861a3bf2c4cab83eb"
+    },
+    {
+      "identity": "PIXEL CONTOUR OVERLAY",
+      "path": "runs/batch_v1/episode_000000/overlay.png",
+      "sha256": "3ad07b8a78a665e63177b4d7badffc33ba647cf52c617e9d6c2564a26ea675a7"
+    }
+  ],
+  "credentials_logged": false,
+  "response_id": "resp_03e301f267bfbe18016aee9e601aa887d0bd6aec501d6d7fdd",
+  "response_model": "gpt-6.1-terra",
+  "response_status": "completed",
+  "usage": {
+    "input_tokens": 4700,
+    "input_tokens_details": {
+      "cache_write_tokens": 4697,
+      "cached_tokens": 0
+    },
+    "output_tokens": 98,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 4798
+  },
+  "decision": "needs_review",
+  "response": {
+    "decision": "needs_review",
+    "observations": [
+      {
+        "evidence": "The simulated apple’s orange contour extends slightly beyond the green reference contour in parts of the overlay.",
+        "uncertainty": "The masks are measured color-component regions; the small difference does not uniquely establish a 3D size or shape mismatch."
+      }
+    ],
+    "updates": [],
+    "expected_effect": [],
+    "review_reason": "Read-only compatibility check; the single view and mask limitations warrant visual review."
+  },
+  "wall_seconds": 7.344178691506386
+}

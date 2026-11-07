@@ -1,0 +1,233 @@
+{
+  "id": "resp_03e301f267bfbe18016aee9e601aa887d0bd6aec501d6d7fdd",
+  "created_at": 1794023008.0,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "Prompt version: diagnostic_v2 (initial-static-only).\nDiagnose differences between the explicitly labeled REAL initial RGB image and CURRENT SIMULATION render. The third image overlays true pixel-mask contours: green reference, orange apple render, cyan plate render. The reference is a real frame; the simulation must never be treated as real evidence.\n\nScope: only the initial static table/cloth, independent apple/plate geometry, and fixed first-person camera. No robot behavior, grasping, policies, training, dynamics fitting or code execution. Nominal scale is anchored to the existing plate mesh; its real size is not independently measured. A single image cannot uniquely determine 3D shape or scale. No depth prediction is ground truth.\n\nFirst locate visible evidence and state uncertainty. Then select the most plausible small correction within the CURRENT editable parameter stage. Propose at most three interpretable parameter changes, using absolute values, exact registered IDs and units. World coordinates do not follow image axes. Use supplied projection-sensitivity values when available. Angles are world-axis rotation-vector degrees relative to baseline, composed R_delta @ R_baseline. Quaternions, if described, are wxyz. Fixed parameters must remain fixed. Do not change mesh mass, friction, contact softness or light to conceal a silhouette error.\n\nTreat masks as measured color-component pixel regions with review limitations, never as guaranteed 3D truth. Do not infer exact hidden dimensions, robot-occluded surfaces, or physical properties from appearance. It is valid to report occlusion, ambiguous scale, insufficient evidence, no useful improvement, or needs_review. accept_candidate is only advice; local numeric/geometry tests and the recorded visual review control acceptance. A failed rest diagnostic cannot be declared passed from images.\n\nReturn only the supplied strict JSON object. observations must cite visible evidence and uncertainty; updates must contain param_id, numeric value, unit and rationale. expected_effect must name a computable metric, direction and rationale. review_reason explains any uncertainty needing review (empty string if none). Never return shell/Python/XML text or unrestricted edits.\n\nDecision/update consistency is mandatory: use decision=\"propose\" for ANY nonempty updates, even if uncertain; express that uncertainty in observations and review_reason. If decision=\"needs_review\" or decision=\"accept_candidate\", updates MUST be an empty array. Every proposed value must remain within the supplied parameter bounds and editable stage. Read-only review or exhausted numeric budget means the local program will record advice without applying it.\n\nThis request only checks model migration compatibility. Describe one visible difference with uncertainty; set decision=\"needs_review\", updates=[], expected_effect=[]. No actions or parameter edits are authorized.",
+  "metadata": {},
+  "model": "gpt-6.1-terra",
+  "object": "response",
+  "output": [
+    {
+      "id": "msg_03e301f267bfbe18016aee9e6191b887d0a9326ac5c9fffc88",
+      "content": [
+        {
+          "annotations": [],
+          "text": "{\"decision\":\"needs_review\",\"observations\":[{\"evidence\":\"The simulated apple’s orange contour extends slightly beyond the green reference contour in parts of the overlay.\",\"uncertainty\":\"The masks are measured color-component regions; the small difference does not uniquely establish a 3D size or shape mismatch.\"}],\"updates\":[],\"expected_effect\":[],\"review_reason\":\"Read-only compatibility check; the single view and mask limitations warrant visual review.\"}",
+          "type": "output_text",
+          "logprobs": []
+        }
+      ],
+      "role": "assistant",
+      "status": "completed",
+      "type": "message",
+      "phase": "final_answer"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "temperature": 1.0,
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 0.98,
+  "background": false,
+  "completed_at": 1794023010.0,
+  "conversation": null,
+  "max_output_tokens": 2200,
+  "max_tool_calls": null,
+  "moderation": null,
+  "previous_response_id": null,
+  "prompt": null,
+  "prompt_cache_key": null,
+  "prompt_cache_options": null,
+  "prompt_cache_retention": "24h",
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "generate_summary": null,
+    "mode": "standard",
+    "summary": null
+  },
+  "safety_identifier": null,
+  "service_tier": "default",
+  "status": "completed",
+  "text": {
+    "format": {
+      "name": "static_scene_diagnostic",
+      "schema_": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "propose",
+              "accept_candidate",
+              "needs_review"
+            ]
+          },
+          "observations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "evidence": {
+                  "type": "string"
+                },
+                "uncertainty": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "evidence",
+                "uncertainty"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "updates": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "properties": {
+                "param_id": {
+                  "type": "string",
+                  "enum": [
+                    "camera.x",
+                    "camera.y",
+                    "camera.z",
+                    "camera.rx",
+                    "camera.ry",
+                    "camera.rz",
+                    "camera.fovy",
+                    "apple.x",
+                    "apple.y",
+                    "apple.rx",
+                    "apple.ry",
+                    "apple.rz",
+                    "apple.scale",
+                    "table.depth_scale",
+                    "table.width_scale",
+                    "table.front_extension",
+                    "cloth.gray",
+                    "light.ambient",
+                    "plate.albedo"
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "deg",
+                    "linear_rgb",
+                    "m",
+                    "ratio"
+                  ]
+                },
+                "rationale": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "param_id",
+                "value",
+                "unit",
+                "rationale"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "expected_effect": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "metric": {
+                  "type": "string"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "increase",
+                    "decrease",
+                    "unchanged"
+                  ]
+                },
+                "rationale": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "metric",
+                "direction",
+                "rationale"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "review_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "observations",
+          "updates",
+          "expected_effect",
+          "review_reason"
+        ],
+        "additionalProperties": false
+      },
+      "type": "json_schema",
+      "description": null,
+      "strict": true
+    },
+    "verbosity": "medium"
+  },
+  "top_logprobs": 0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 4700,
+    "input_tokens_details": {
+      "cache_write_tokens": 4697,
+      "cached_tokens": 0
+    },
+    "output_tokens": 98,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 4798
+  },
+  "user": null,
+  "access_programs": {
+    "cyber": "standard"
+  },
+  "billing": {
+    "payer": "openai"
+  },
+  "frequency_penalty": 0.0,
+  "image": {
+    "context_compression": "disabled"
+  },
+  "presence_penalty": 0.0,
+  "store": false,
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "input_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      },
+      "total_tokens": 0
+    },
+    "web_search": {
+      "num_requests": 0
+    }
+  }
+}
