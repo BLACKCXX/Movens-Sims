@@ -1,0 +1,132 @@
+{
+  "version": "head_camera_pilot_v1",
+  "camera_init_mode": "robot_mount_prior",
+  "experimental": true,
+  "allowed_episodes": [
+    0
+  ],
+  "manifest": "configs/manifest.json",
+  "run_root": "runs/head_camera_pilot_v1",
+  "comparison_root": "runs/batch_v1",
+  "source_project": "/root/autodl-tmp/Movens-Interact",
+  "geometry_variants": [
+    "batch_final",
+    "imported_initial"
+  ],
+  "robot": {
+    "repository": "unitreerobotics/unitree_ros",
+    "revision": "41dec58c7a3ccb3050243ef16ac2ca74b2b0f9ca",
+    "path": "robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf",
+    "git_blob": "83d44feeef4e3660adfe4a4dac44b16054c10f91",
+    "state_field": "observation.state",
+    "reference_frame": 0,
+    "reference_timestamp_s": 0.0,
+    "timestamp_tolerance_s": 0.001,
+    "root_source": "imported_robot_reset_protocol_assumed_fixed_not_measured",
+    "mount_joint": "d435_joint",
+    "mount_profiles": {
+      "stock_reference": 47.6,
+      "oak_document_approximation": 40.0
+    },
+    "optical_center_offset_in_mount_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "optical_center_offset_status": "unmeasured_zero_nominal_approximation_not_confirmed_light_center",
+    "link_axes_assumption": "+X forward, +Y left, +Z up; checked by forward-axis projection",
+    "mount_doc_revision": "a4e279498bfb684c5dbea5711f41dc60e7bc97bc"
+  },
+  "intrinsics": {
+    "fovy_candidates_deg": [
+      69.0,
+      55.0,
+      42.0,
+      79.5
+    ],
+    "width": 640,
+    "height": 480,
+    "principal_point": "image_center",
+    "distortion": "unmeasured_pinhole_approximation",
+    "crop": "none_added"
+  },
+  "fit": {
+    "width": 320,
+    "height": 240,
+    "max_evaluations": 600,
+    "max_seconds": 120,
+    "max_iterations": 8,
+    "ftol": 0.0001,
+    "xtol": 0.001,
+    "seed": 20261107,
+    "apple_tilt_bound_deg": 15,
+    "apple_yaw_bound_deg": 30
+  },
+  "refinement": {
+    "enabled": true,
+    "max_translation_norm_m": 0.02,
+    "max_rotation_angle_deg": 5.0,
+    "max_evaluations": 600,
+    "systematic_centroid_error_px_min": 3.0,
+    "shared_error_cosine_min": 0.8
+  },
+  "evaluator": {
+    "version": "head_camera_whole_scene_v1",
+    "top_fraction": 0.2,
+    "weights": {
+      "object_iou": 1.0,
+      "edge": 0.6,
+      "centroid": 0.5,
+      "area": 0.2,
+      "cloth": 0.3,
+      "top": 0.3,
+      "boundary": 0.2,
+      "pose_regularization": 0.001
+    }
+  },
+  "thresholds": {
+    "iou_drop_max": 0.02,
+    "apple_iou_min": 0.9,
+    "plate_iou_min": 0.97,
+    "edge_px_max": 3.0,
+    "edge_degradation_px_max": 1.0,
+    "centroid_px_max": 3.0,
+    "centroid_degradation_px_max": 2.0,
+    "area_relative_error_max": 0.05,
+    "axis_relative_error_max": 0.05,
+    "cloth_iou_min": 0.97,
+    "top_cloth_iou_min": 0.9,
+    "false_background_on_cloth_max": 0.01,
+    "support_gap_m_max": 0.002,
+    "penetration_m_max": 0.001,
+    "translation_m_max": 0.005,
+    "rotation_deg_max": 5.0
+  },
+  "threshold_basis": "Predeclared engineering tolerances at 640x480, nominal inherited scale, local support 2mm/penetration 1mm, one-second rest 5mm/5deg. Identical across geometry/mount/FOV candidates; never relaxed after fitting.",
+  "render": {
+    "duration_s": 5,
+    "fps": 30
+  },
+  "diagnostic": {
+    "duration_s": 1,
+    "fps": 30,
+    "initial_velocities": "zero_once_before_integration",
+    "external_forces": "zero",
+    "free_objects": [
+      "apple",
+      "plate"
+    ]
+  },
+  "gpt": {
+    "enabled": false,
+    "model": "gpt-6.1-terra",
+    "max_calls": 0
+  },
+  "integration_policy": "visual_and_initial_support_pass_required; physical_failure_allows_experimental_only",
+  "mask_review": {
+    "reference_sha256": "742147ac6f2c477ae4dce8c27e1a2a4db1bde2220bd94f48d0358a8bd1519a69",
+    "preview_sha256": "6617cc7ff6c85b1cc4b64166460d10c881fceeccdea0606d7f95b5f51ef9f064",
+    "reviewer": "Codex visual inspection of frame0 RGB and exact pixel-mask overlay",
+    "reviewed": true
+  }
+}

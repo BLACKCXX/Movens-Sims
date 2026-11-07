@@ -154,7 +154,7 @@ def report(manifest,config):
     (root/'index.html').write_text(doc);return counts
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['discover','import','prepare','fit','validate','render','report','run']);p.add_argument('--config',default='configs/batch_v1.json');p.add_argument('--manifest');p.add_argument('--episode',type=int);p.add_argument('--run-root');p.add_argument('--resume',action='store_true');p.add_argument('--dry-run',action='store_true');p.add_argument('--gpt',action='store_true');p.add_argument('--local-only',action='store_true');p.add_argument('--concurrency',type=int,default=1);p.add_argument('--stage',choices=STAGES);p.add_argument('--fit-stages',nargs='+',choices=['camera','layout','size','appearance']);args=p.parse_args(argv)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['discover','import','prepare','fit','validate','render','report','run']);p.add_argument('--config',default='configs/batch_v1.json');p.add_argument('--manifest');p.add_argument('--episode',type=int);p.add_argument('--run-root');p.add_argument('--resume',action='store_true');p.add_argument('--dry-run',action='store_true');p.add_argument('--gpt','--terra',dest='gpt',action='store_true');p.add_argument('--local-only',action='store_true');p.add_argument('--concurrency',type=int,default=1);p.add_argument('--stage',choices=STAGES);p.add_argument('--fit-stages',nargs='+',choices=['camera','layout','size','appearance']);args=p.parse_args(argv)
     config=read(ROOT/args.config)
     if args.manifest:config['manifest']=args.manifest
     if args.run_root:config['run_root']=args.run_root
@@ -164,6 +164,14 @@ def main(argv=None):
         m=discover(config['source_project']);print([e['episode'] for e in m['entries']]);return
     manifest=read(ROOT/config['manifest']);entries=[e for e in manifest['entries'] if args.episode is None or e['episode']==args.episode]
     if not entries:p.error('Episode is not in the frozen manifest')
+    if config.get('workflow')=='mount_joint_v3':
+        from .reconstruction.workflow import run_pipeline
+        if args.episode is None and not args.dry_run:p.error('v3 pilot requires an explicit --episode; no implicit batch run')
+        if args.concurrency!=1:p.error('Use the durable full-batch coordinator for concurrency; per-episode workers use concurrency=1')
+        for entry in entries:
+            result=run_pipeline(entry,config,args.gpt and not args.local_only,args.resume,args.dry_run,args.stage or args.command)
+            if args.dry_run:print(json.dumps(result,ensure_ascii=False))
+        return
     if args.command=='import':
         from .ingest import import_episode
         for e in entries:

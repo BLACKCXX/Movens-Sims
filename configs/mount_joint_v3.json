@@ -1,0 +1,80 @@
+{
+  "workflow": "mount_joint_v3",
+  "version": "mount_joint_v3.0",
+  "task_group_id": "pipeline_refactor_ep000000_v1",
+  "allowed_episodes": [0],
+  "manifest": "configs/manifest.json",
+  "run_root": "runs/mount_joint_v3",
+  "mount_source_root": "runs/head_camera_pilot_v1",
+  "legacy_comparison_root": "runs/batch_v1",
+  "camera_init_mode": "robot_mount_prior",
+  "camera": {
+    "selection_variant": "batch_final",
+    "selection_policy": "Read actual historical selection, recompute FK, verify final camera including runtime parameters",
+    "fixed": true,
+    "conditional_revision": {"translation_norm_max_m": 0.02, "rotation_norm_max_deg": 5.0, "fov_fixed": true, "table_fixed": true, "shared_centroid_cosine_min": 0.8, "minimum_shared_center_error_px": 3.0}
+  },
+  "budget": {
+    "terra_requests": 5,
+    "geometry_rounds": 4,
+    "render_total": 1200,
+    "render_initial": 600,
+    "render_repair": 400,
+    "render_appearance": 200,
+    "projection_evaluations": 5000,
+    "optimization_seconds": 1800
+  },
+  "fit": {
+    "seed": 20261107,
+    "projection_starts": 32,
+    "projection_max_per_start": 60,
+    "coarse_render_candidates": 40,
+    "local_start_count": 3,
+    "initial_render_subbudgets": [90, 350, 160],
+    "repair_round_caps": [160, 120, 120],
+    "plate_tilt_initially_enabled": false,
+    "shape_initially_enabled": false,
+    "local_no_improvement_evaluations": 40,
+    "width": 320,
+    "height": 240,
+    "final_width": 640,
+    "final_height": 480
+  },
+  "acceptance": {
+    "iou_min": 0.90,
+    "center_px_max": 3.0,
+    "edge_px_max": 3.0,
+    "area_relative_max": 0.05,
+    "axes_relative_max": 0.05,
+    "support_gap_m_max": 0.002,
+    "penetration_m_max": 0.001,
+    "minimum_objective_improvement": 0.0001,
+    "iou_degradation_max": 0.01,
+    "center_degradation_px": 1.0,
+    "edge_degradation_px": 0.5,
+    "translation_m_max": 0.005,
+    "rotation_deg_max": 5.0,
+    "threshold_basis": "New predeclared balanced-object engineering tolerances at 640x480. Historical camera-fitted plate IoU is a comparison, not a minimum for a different fixed camera. Global image consistency is separately monitored against Mount; Terra must assess existing structural contradictions. Old thresholds/results remain unchanged."
+  },
+  "evaluator": {
+    "version": "balanced_geometry_v3",
+    "top_fraction": 0.2,
+    "weights": {"object_iou": 1.0, "edge": 0.6, "centroid": 0.5, "area": 0.2, "cloth": 0.3, "top": 0.3, "boundary": 0.2}
+  },
+  "terra": {
+    "model": "gpt-6.1-terra",
+    "base_url": "https://api.openai.com/v1",
+    "env_file": "/root/autodl-tmp/api.env",
+    "max_retries": 0,
+    "timeout_seconds": 90,
+    "max_output_tokens": 5000,
+    "prompt_version": "mount_joint_review_v3"
+  },
+  "appearance": {
+    "subsets": [["light.ambient", "light.diffuse"], ["apple.tint_r", "apple.tint_g", "apple.tint_b", "apple.yellow_mix", "plate.albedo"], ["material.specular", "material.shininess"], ["cloth.gray"]],
+    "render_subbudgets": [45, 85, 40, 30]
+  },
+  "render": {"width": 640, "height": 480, "duration_s": 5, "fps": 30, "crop": "none", "shadows": false},
+  "diagnostic": {"duration_s": 1, "fps": 30, "initial_velocities": "zero_once", "free_objects": ["apple", "plate"]},
+  "compatibility": "Explicit workflow dispatch; legacy configs and all historical runs are preserved. No automatic legacy receipt upgrades."
+}

@@ -1,0 +1,21 @@
+{
+  "version": "reconstructed_policy_test_v1",
+  "episode": 0,
+  "run_root": "/root/autodl-tmp/Movens-Sim/runs/policy_test_wrist48500_v1/episode_000000",
+  "reconstruction": "/root/autodl-tmp/Movens-Sim/runs/mount_joint_v3/episode_000000",
+  "robot_source": "/root/autodl-tmp/Movens-Sim/data/episode_000000/source",
+  "original_candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm",
+  "training_run": "/root/autodl-tmp/Movens-Interact/outputs/apple_fixed_hand_wrist_ft50000_20261106T093125Z",
+  "checkpoint": "/root/autodl-tmp/Movens-Interact/outputs/apple_fixed_hand_wrist_ft50000_20261106T093125Z/formal/model_best_val.pt",
+  "expected_checkpoint_step": 48500,
+  "base_checkpoint": "/root/autodl-tmp/Movens-Interact/checkpoints/Movens-Zero-XL/model.safetensors",
+  "qwen_config": "/root/autodl-tmp/Movens-Interact/checkpoints/Qwen2.5-Omni-3B",
+  "test_runtime": "/root/autodl-tmp/Movens-Interact/outputs/color_generalization_b32_step50000_20261106T132122Z",
+  "gpu": 0,
+  "inference": {
+    "control_fps": 50, "prediction_horizon": 30, "execution_horizon": 20,
+    "retained_prefix": 10, "steps": 10, "cfg_scale": 1.0,
+    "seed": 42, "progress_total_frames": 1001,
+    "live_current_observations_only": true
+  }
+}

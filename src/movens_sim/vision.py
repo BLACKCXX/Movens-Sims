@@ -10,7 +10,7 @@ from .util import read, save_rgb, write
 def frame_at(video,index=0):
     from PIL import Image
     # System FFmpeg/libdav1d decodes the raw AV1 source; OpenCV's bundled FFmpeg does not.
-    p=subprocess.run(['ffmpeg','-v','error','-i',str(video),'-vf',f'select=eq(n\\,{int(index)})','-frames:v','1','-f','image2pipe','-vcodec','png','-'],capture_output=True,check=True)
+    p=subprocess.run(['ffmpeg','-v','error','-threads','1','-filter_threads','1','-i',str(video),'-vf',f'select=eq(n\\,{int(index)})','-frames:v','1','-threads','1','-f','image2pipe','-vcodec','png','-'],capture_output=True,check=True)
     if not p.stdout:raise ValueError(f'Cannot read frame {index} of {video}')
     probe=subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=avg_frame_rate','-of','json',str(video)],capture_output=True,text=True,check=True)
     a,b=json.loads(probe.stdout)['streams'][0]['avg_frame_rate'].split('/')

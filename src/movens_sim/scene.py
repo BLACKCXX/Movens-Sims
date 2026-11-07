@@ -178,6 +178,141 @@ def look_at(eye,target,up=np.array([0.,0.,1.])):
     z=np.asarray(eye)-target;z=z/np.linalg.norm(z);x=np.cross(up,z);x/=np.linalg.norm(x);y=np.cross(z,x)
     return np.column_stack((x,y,z))
 
+
+class FixedGeometryScene:
+    """Pose-only model: geometry is immutable and Z follows local saved support."""
+
+    def __init__(self, path, physics_path=None, physics_state=None):
+        from scipy.interpolate import LinearNDInterpolator
+        self.path=Path(path)
+        self.physics_path=Path(physics_path) if physics_path else None
+        self.physics_state=Path(physics_state) if physics_state else None
+        self.model=mujoco.MjModel.from_xml_path(str(path));self.data=mujoco.MjData(self.model)
+        self.cam=self.model.camera('approx_ego_camera').id
+        if self.model.cam_bodyid[self.cam]!=0:raise ValueError('Portable camera must be attached to world')
+        self.descendants={};self.geom_sets={};self.joints={};self.initial_poses={}
+        mujoco.mj_forward(self.model,self.data)
+        for label in ('apple','plate','table'):
+            root=self.model.body(label+'_root').id;bodies={root}
+            for b in range(self.model.nbody):
+                if int(self.model.body_parentid[b]) in bodies:bodies.add(b)
+            self.descendants[label]=bodies
+            self.geom_sets[label]=np.flatnonzero(np.isin(self.model.geom_bodyid,list(bodies)))
+            if label!='table':
+                self.joints[label]=self.model.joint(label+'_freejoint').id
+                self.initial_poses[label]=dict(xyz_m=self.data.xpos[root].copy(),quaternion_wxyz=self.data.xquat[root].copy())
+        self.apple=self.model.body('apple_root').id;self.plate=self.model.body('plate_root').id
+        self.geom_sets['cloth']=np.array([i for i in range(self.model.ngeom) if (mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_GEOM,i) or '').startswith('frozen_') or (mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_GEOM,i) or '')=='cloth_continuation'])
+        soft=[]
+        for g in self.geom_sets['cloth']:
+            name=mujoco.mj_id2name(self.model,mujoco.mjtObj.mjOBJ_GEOM,int(g))
+            if name.startswith('frozen_'):soft.append(self.geom_vertices(int(g)))
+        if not soft:raise ValueError('No saved support surface')
+        surface=np.concatenate(soft);unique=np.unique(surface,axis=0)
+        self.support=LinearNDInterpolator(unique[:,:2],unique[:,2],fill_value=np.nan)
+        self.support_bounds=np.array([unique[:,:2].min(0),unique[:,:2].max(0)])
+        self.support_height_range=[float(unique[:,2].min()),float(unique[:,2].max())]
+        self.params={}
+        for label in ('apple','plate'):
+            for i,a in enumerate('xy'):self.params[label+'.'+a]=float(self.initial_poses[label]['xyz_m'][i])
+        self.params.update({'apple.r'+a:0. for a in 'xyz'})
+        self.locked_camera=None;self.registry_entries=[]
+        self.geometry_hash=__import__('hashlib').sha256(self.model.mesh_vert.tobytes()+self.model.mesh_face.tobytes()).hexdigest()
+
+    def geom_vertices(self,g):
+        m=self.model;d=self.data
+        if m.geom_type[g]!=mujoco.mjtGeom.mjGEOM_MESH:raise ValueError('Expected mesh geometry')
+        mi=int(m.geom_dataid[g]);a=int(m.mesh_vertadr[mi]);n=int(m.mesh_vertnum[mi])
+        return m.mesh_vert[a:a+n]@d.geom_xmat[g].reshape(3,3).T+d.geom_xpos[g]
+
+    def vertices(self,label,collision=False):
+        return Scene.vertices(self,label,collision)
+
+    def set_camera(self,prior,fovy,lock=True):
+        self.model.cam_pos[self.cam]=prior['xyz_m'];self.model.cam_quat[self.cam]=prior['quaternion_wxyz'];self.model.cam_fovy[self.cam]=fovy
+        mujoco.mj_forward(self.model,self.data)
+        if lock:self.locked_camera=(self.model.cam_pos[self.cam].copy(),self.model.cam_quat[self.cam].copy(),float(fovy))
+
+    def registry(self,tilt=15.,yaw=30.):
+        out=[]
+        for label in ('apple','plate'):
+            points=self.vertices(label,collision=True);radius=np.ptp(points[:,:2],axis=0)/2
+            lo=self.support_bounds[0]+radius+.002;hi=self.support_bounds[1]-radius-.002
+            for i,a in enumerate('xy'):
+                out.append(dict(id=label+'.'+a,unit='m',coordinate_frame='world XYZ',initial=self.params[label+'.'+a],lower=float(lo[i]),upper=float(hi[i]),stage='layout',meaning='XY within the original physical soft support, not the visual-only cloth extension',update_method='freejoint qpos; Z solved against local saved support'))
+        for a,bound in zip('xyz',[tilt,tilt,yaw]):
+            out.append(dict(id='apple.r'+a,unit='deg',coordinate_frame='world-axis rotation vector relative to initial quaternion wxyz',initial=0.,lower=-bound,upper=bound,stage='orientation',meaning='Bounded silhouette-supported orientation; plate yaw/tilt fixed',update_method='R_delta @ R_initial; Z recomputed'))
+        self.registry_entries=out
+        return out
+
+    def validate(self,values):
+        reg={x['id']:x for x in self.registry_entries}
+        for k,v in values.items():
+            if k not in reg or isinstance(v,bool) or not isinstance(v,(int,float)) or not np.isfinite(v):raise ValueError('Unknown/nonfinite pose parameter '+k)
+            if not reg[k]['lower']<=v<=reg[k]['upper']:raise ValueError('Out of bounds '+k)
+
+    def apply(self,values,solve_support=True):
+        self.validate(values)
+        old=self.params.copy();oldq=self.data.qpos.copy();self.params.update(values)
+        try:
+            for label in ('apple','plate'):
+                q=int(self.model.jnt_qposadr[self.joints[label]]);initial=self.initial_poses[label]
+                self.data.qpos[q:q+3]=[self.params[label+'.x'],self.params[label+'.y'],initial['xyz_m'][2]]
+                r=matrix_from_quat(initial['quaternion_wxyz'])
+                if label=='apple':r=Rotation.from_rotvec([self.params['apple.r'+a] for a in 'xyz'],degrees=True).as_matrix()@r
+                self.data.qpos[q+3:q+7]=quat_from_matrix(r)
+                mujoco.mj_forward(self.model,self.data)
+                if solve_support:
+                    points=self.vertices(label,collision=True);height=np.asarray(self.support(points[:,:2]))
+                    if not np.isfinite(height).all():raise ValueError('Object collision footprint leaves physical soft surface')
+                    self.data.qpos[q+2]-=float(np.min(points[:,2]-height))
+                    mujoco.mj_forward(self.model,self.data)
+            if self.locked_camera:
+                p,q,f=self.locked_camera
+                np.testing.assert_array_equal(self.model.cam_pos[self.cam],p);np.testing.assert_array_equal(self.model.cam_quat[self.cam],q)
+                if self.model.cam_fovy[self.cam]!=f:raise ValueError('Fixed camera changed')
+        except BaseException:
+            self.params=old;self.data.qpos[:]=oldq;mujoco.mj_forward(self.model,self.data);raise
+
+    def geometry_metrics(self):
+        out={}
+        for label in ('apple','plate'):
+            points=self.vertices(label,collision=True);height=np.asarray(self.support(points[:,:2]));gaps=points[:,2]-height
+            finite=bool(np.isfinite(gaps).all())
+            visual=self.vertices(label);vh=np.asarray(self.support(visual[:,:2]));vg=visual[:,2]-vh
+            out[label]=dict(xyz_m=self.data.xpos[self.model.body(label+'_root').id].copy(),quaternion_wxyz=self.data.xquat[self.model.body(label+'_root').id].copy(),signed_support_gap_m=float(np.min(gaps)) if finite else None,penetration_m=max(0.,-float(np.min(gaps))) if finite else None,visual_support_gap_m=float(np.nanmin(vg)) if np.isfinite(vg).any() else None,footprint_inside_physical_support=finite,aabb_world_m=[points.min(0),points.max(0)])
+        out['support_policy']='Saved deformed soft vertices interpolated in XY; Z solved once per candidate, no free Z parameter. Full flex/contact diagnostic separately checks this vertex-based geometric approximation.'
+        out['support_height_range_m']=self.support_height_range;out['physical_support_xy_bounds_m']=self.support_bounds
+        return out
+
+    def export(self,out,physics=False):
+        from .ingest import portable_copy
+        out=Path(out);out.mkdir(parents=True,exist_ok=True)
+        source=self.physics_path if physics else self.path
+        closure=portable_copy(source,out)
+        path=out/'scene.xml';root=ET.parse(path)
+        cam=root.find(".//camera[@name='approx_ego_camera']")
+        for key in ('xyaxes','zaxis','euler','axisangle'):cam.attrib.pop(key,None)
+        cam.set('pos',numbers(self.model.cam_pos[self.cam]));cam.set('quat',numbers(self.model.cam_quat[self.cam]));cam.set('fovy',str(self.model.cam_fovy[self.cam]))
+        for label in ('apple','plate'):
+            b=self.model.body(label+'_root').id;node=root.find(f".//body[@name='{label}_root']")
+            for key in ('euler','axisangle','xyaxes','zaxis'):node.attrib.pop(key,None)
+            node.set('pos',numbers(self.data.xpos[b]));node.set('quat',numbers(self.data.xquat[b]))
+        path=path.rename(out/('scene_physics.xml' if physics else 'scene_optimized.xml'));root.write(path,encoding='utf-8',xml_declaration=True)
+        model=mujoco.MjModel.from_xml_path(str(path));data=mujoco.MjData(model)
+        if physics and self.physics_state:
+            with np.load(self.physics_state) as z:
+                # Name-address map generated before the plate freejoint was inserted.
+                names=z['joint_names'];positions=z['qpos'];addresses=z['qpos_addresses'];sizes=z['qpos_sizes']
+                for name,adr,n in zip(names,addresses,sizes):
+                    if str(name) in ('apple_freejoint','plate_freejoint'):continue
+                    j=model.joint(str(name)).id;a=int(model.jnt_qposadr[j]);data.qpos[a:a+int(n)]=positions[int(adr):int(adr)+int(n)]
+        # Starting a new static-rest diagnostic: zero once, never reset during integration.
+        data.qvel[:]=0;mujoco.mj_forward(model,data)
+        np.savez_compressed(path.with_suffix('.state.npz'),qpos=data.qpos,qvel=data.qvel,time=np.array(0.))
+        write(path.with_suffix('.state.json'),dict(xml_sha256=sha(path),params=self.params,quaternion_order='wxyz',units='m',physics=physics,initial_velocity_policy='zero once before integration',resource_closure=closure))
+        return path
+
 class Scene:
     def __init__(self, path):
         self.path=Path(path);self.context=read(self.path.parent/'scene_context.json')

@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
+CODE_ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get('MOVENS_SIM_PROJECT_ROOT', CODE_ROOT)).resolve()
 
 def sha(path):
     h = hashlib.sha256()

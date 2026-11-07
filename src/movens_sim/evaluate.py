@@ -41,6 +41,66 @@ def geometry_metrics(scene):
 def visual_pass(metrics,thresholds):
     return all(o['iou']>=thresholds['object_iou_min'] and o['symmetric_edge_distance_px']<=thresholds['edge_distance_px_max'] and o['centroid_error_px']<=thresholds['centroid_error_px_max'] for o in metrics['objects'].values()) and metrics['table']['cloth_visible_background_coverage']>=thresholds.get('cloth_coverage_min',.98)
 
+
+def whole_scene_metrics(pred,target,valid,config):
+    """Fixed whole-frame semantic evaluation; no top-strip exclusion."""
+    result=image_metrics(pred,{k:target[k] for k in ('apple','plate')},valid)
+    h,w=valid.shape;diagonal=float(np.hypot(w,h));weights=config['evaluator']['weights']
+    loss=0.
+    for label in ('apple','plate'):
+        a=pred[label]&valid;b=target[label]&valid;obj=result['objects'][label]
+        yy,xx=np.where(a);yt,xt=np.where(b)
+        obj['centroid_residual_xy_px']=[float(xx.mean()-xt.mean()),float(yy.mean()-yt.mean())] if len(xx) and len(xt) else None
+        obj['area_relative_error']=float(abs(a.sum()-b.sum())/max(1,b.sum()))
+        axes=[]
+        for mask in (a,b):
+            contours,_=cv2.findContours(mask.astype(np.uint8),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+            c=max(contours,key=cv2.contourArea) if contours else []
+            axes.append(np.sort(cv2.fitEllipse(c)[1]) if len(c)>=5 else np.array([0.,0.]))
+        obj['axis_relative_errors']=(np.abs(axes[0]-axes[1])/np.maximum(axes[1],1)).tolist()
+        loss+=.5*(weights['object_iou']*(1-obj['iou'])+weights['edge']*obj['symmetric_edge_distance_px']/diagonal+weights['centroid']*obj['centroid_error_px']/diagonal+weights['area']*obj['area_relative_error'])
+    region=valid.copy()
+    for label in ('apple','plate'):region&=~cv2.dilate(target[label].astype(np.uint8),np.ones((7,7),np.uint8)).astype(bool)
+    a=pred['cloth']&region;b=target['cloth']&region
+    def iou(x,y,roi):return float((x&y&roi).sum()/max(1,((x|y)&roi).sum()))
+    top=np.zeros_like(valid);top[:int(h*config['evaluator']['top_fraction'])]=True
+    ciou=iou(a,b,region);tiou=iou(a,b,region&top)
+    false_background=float((b&~a).sum()/max(1,b.sum()))
+    # Ignore image-border edges and the fixed object-exclusion rim, not the top region.
+    boundary_roi=cv2.erode(region.astype(np.uint8),np.ones((3,3),np.uint8)).astype(bool)
+    ea=edge(a)&boundary_roi;eb=edge(b)&boundary_roi
+    if ea.any() and eb.any():
+        da=cv2.distanceTransform((~ea).astype(np.uint8),cv2.DIST_L2,5);db=cv2.distanceTransform((~eb).astype(np.uint8),cv2.DIST_L2,5)
+        ed=float((da[eb].mean()+db[ea].mean())/2)
+    elif not ea.any() and not eb.any():ed=0.
+    else:ed=diagonal
+    loss+=weights['cloth']*(1-ciou)+weights['top']*(1-tiou)+weights['boundary']*ed/diagonal
+    result.update(evaluator_version=config['evaluator']['version'],image_loss=float(loss),table=dict(cloth_iou=ciou,top_cloth_iou=tiou,false_background_on_real_cloth_fraction=false_background,cloth_boundary_symmetric_distance_px=ed,top_fraction=config['evaluator']['top_fraction'],top_excluded=False,valid_pixels=int(region.sum()),table_edge_status='No independently identified rigid tabletop edge in reference; cloth/background boundary scored, unseen rigid extent remains uncertain'))
+    return result
+
+
+def head_camera_gates(metrics,baseline,geometry,thresholds):
+    failures=[]
+    for label,obj in metrics['objects'].items():
+        old=baseline['objects'][label]
+        checks={
+            'iou':obj['iou']>=max(thresholds[label+'_iou_min'],old['iou']-thresholds['iou_drop_max']),
+            'edge':obj['symmetric_edge_distance_px']<=min(thresholds['edge_px_max'],old['symmetric_edge_distance_px']+thresholds['edge_degradation_px_max']),
+            'centroid':obj['centroid_error_px']<=min(thresholds['centroid_px_max'],old['centroid_error_px']+thresholds['centroid_degradation_px_max']),
+            'area':obj['area_relative_error']<=thresholds['area_relative_error_max'],
+            'axes':max(obj['axis_relative_errors'])<=thresholds['axis_relative_error_max']}
+        failures.extend(label+'.'+k for k,v in checks.items() if not v)
+    table=metrics['table']
+    for name,value,limit,minimum in [('cloth_iou',table['cloth_iou'],thresholds['cloth_iou_min'],True),('top_cloth_iou',table['top_cloth_iou'],thresholds['top_cloth_iou_min'],True),('false_background',table['false_background_on_real_cloth_fraction'],thresholds['false_background_on_cloth_max'],False)]:
+        if (value<limit if minimum else value>limit):failures.append('table.'+name)
+    geometry_failures=[]
+    for label in ('apple','plate'):
+        g=geometry[label]
+        if not g['footprint_inside_physical_support']:geometry_failures.append(label+'.outside_support')
+        if g['signed_support_gap_m'] is None or not -thresholds['penetration_m_max']<=g['signed_support_gap_m']<=thresholds['support_gap_m_max']:geometry_failures.append(label+'.support_gap')
+        if g['visual_support_gap_m'] is None or g['visual_support_gap_m'] < -thresholds['penetration_m_max'] or g['visual_support_gap_m']>thresholds['support_gap_m_max']:geometry_failures.append(label+'.visual_support_gap')
+    return dict(image_passed=not failures,initial_support_passed=not geometry_failures,static_passed=not failures and not geometry_failures,image_failures=failures,geometry_failures=geometry_failures)
+
 def settle_diagnostic(scene,run,config,thresholds,width=640,height=480):
     from .render import Renderer,video_writer
     run=Path(run);path=scene.export('scene_physics.xml',physics=True);m=mujoco.MjModel.from_xml_path(str(path));d=mujoco.MjData(m)

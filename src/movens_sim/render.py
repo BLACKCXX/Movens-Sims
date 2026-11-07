@@ -48,7 +48,7 @@ def overlay(reference,masks,real_masks):
 
 def video_writer(path,frames,fps=30):
     iterator=iter(frames);first=next(iterator);h,w=first.shape[:2];path=Path(path);temp=path.with_name(path.stem+'.partial.mp4')
-    p=subprocess.Popen(['ffmpeg','-v','error','-y','-f','rawvideo','-pix_fmt','rgb24','-s',f'{w}x{h}','-r',str(fps),'-i','-','-an','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-movflags','+faststart',str(temp)],stdin=subprocess.PIPE,stderr=subprocess.PIPE)
+    p=subprocess.Popen(['ffmpeg','-v','error','-y','-threads','1','-f','rawvideo','-pix_fmt','rgb24','-s',f'{w}x{h}','-r',str(fps),'-i','-','-an','-c:v','libx264','-threads','1','-preset','fast','-crf','18','-pix_fmt','yuv420p','-movflags','+faststart',str(temp)],stdin=subprocess.PIPE,stderr=subprocess.PIPE)
     count=0
     try:
         p.stdin.write(first.tobytes());count+=1

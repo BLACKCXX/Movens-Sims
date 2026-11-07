@@ -3,6 +3,15 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 *.env
+# Local credential files; examples must contain placeholders only.
+*.env.*
+!*.env.example
+api-key
+api-key.*
+api_key
+api_key.*
+secrets.json
+credentials.json
 data/
 runs/
 dist/
