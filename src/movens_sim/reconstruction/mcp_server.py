@@ -25,11 +25,16 @@ def make_server(session):
         with (session.run/'.tool.lock').open('a') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
             try:
+                before=session.scene.candidate_id();before_params=session.scene.params.copy()
+                if name!='inspect_scene':
+                    from .control import check_stop
+                    check_stop()
                 value=getattr(session,name)(**kwargs)
                 result=dict(ok=True,result=value)
             except Exception as exc:
                 result=dict(ok=False,error=dict(code=getattr(exc,'code',type(exc).__name__),message=str(exc)[:500]))
-            append(session.run/'mcp_tool_calls.jsonl',dict(tool=name,arguments=kwargs,ok=result['ok'],candidate_id=session.scene.candidate_id(),wall_seconds=time.monotonic()-start,transport='real_stdio_mcp',error=result.get('error')))
+            append(session.run/'mcp_tool_calls.jsonl',dict(tool=name,arguments=kwargs,ok=result['ok'],before_candidate_id=before,candidate_id=session.scene.candidate_id(),parameter_changes={k:dict(before=before_params.get(k),after=v) for k,v in session.scene.params.items() if before_params.get(k)!=v},wall_seconds=time.monotonic()-start,transport='real_stdio_mcp',error=result.get('error'),retest=result.get('result')))
+            session.budget.record('mcp_local_call',dict(tool=name,ok=result['ok'],before_candidate_id=before,after_candidate_id=session.scene.candidate_id()),time.monotonic()-start)
             return result
 
     def inspect_scene() -> dict:
@@ -68,9 +73,39 @@ def make_server(session):
         """Restore a compatible same-stage checkpoint without restoring spent budget."""
         return invoke('restore',label=label,candidate_id=candidate_id)
 
+    def inspect_environment(candidate_id:str) -> dict:
+        """Coverage masks, real-pixel ray-plane evidence, table and physical support bounds."""
+        return invoke('inspect_environment',candidate_id=candidate_id)
+
+    def update_environment(updates:dict[str,float],evidence:str,confidence:float,candidate_id:str) -> dict:
+        """Bounded visual cloth/table XY extents; no expansion of soft support or height compensation."""
+        return invoke('update_environment',updates=updates,evidence=evidence,confidence=confidence,candidate_id=candidate_id)
+
+    def render_auxiliary(candidate_id:str) -> dict:
+        """Side/oblique/neutral-light images and normal statistics on independent copies."""
+        return invoke('render_auxiliary',candidate_id=candidate_id)
+
+    def diagnose_support(candidate_id:str) -> dict:
+        """Fixed one-second native-flex diagnostic, contact identities/forces/velocities and deformation."""
+        return invoke('diagnose_support',candidate_id=candidate_id)
+
+    def repair_support(updates:dict[str,float],evidence:str,confidence:float,candidate_id:str) -> dict:
+        """Evidence-backed initial pose repair and XY/scale refit; full fixed-time retest, no pinning."""
+        return invoke('repair_support',updates=updates,evidence=evidence,confidence=confidence,candidate_id=candidate_id)
+
+    def fit_appearance(parameter_ids:list[str]|None=None,candidate_id:str|None=None) -> dict:
+        """Execute supported color/material/light optimization with the current geometry locked."""
+        return invoke('fit_appearance',parameter_ids=parameter_ids,candidate_id=candidate_id)
+
     funcs=[inspect_scene,propose_or_apply_object_update,fit_geometry,update_shape_or_asset,update_appearance,review_camera_hypothesis,render_and_evaluate,checkpoint,restore]
+    if session.scene.classified:
+        funcs += [inspect_environment,update_environment,render_auxiliary,diagnose_support,repair_support,fit_appearance]
+        exposed=session.capabilities()['tools']
+        funcs=[fn for fn in funcs if fn.__name__ in exposed or fn.__name__=='inspect_scene' or (session.scene.stage in ('geometry','appearance') and fn.__name__ in ('checkpoint','restore','render_and_evaluate'))]
     tools=[];registry={p['id']:p for p in session.scene.registry()}
     for fn in funcs:
+        if session.scene.classified and fn.__name__=='update_appearance':fn.__doc__='Independent appearance correction with current geometry frozen; does not certify geometry or physics. Source/finite/stage/budget guards apply.'
+        if session.scene.classified and fn.__name__=='review_camera_hypothesis':fn.__doc__='After cloth coverage diagnosis, compare bounded pose/FOV candidates with joint XY/scale projection seeds; report global and both object residuals and retain rollback.'
         tool=Tool.from_function(fn)
         schema=tool.parameters;schema['additionalProperties']=False
         props=schema.get('properties',{})
@@ -78,9 +113,12 @@ def make_server(session):
             stage='appearance' if fn.__name__=='update_appearance' else 'geometry'
             allowed={k:v for k,v in registry.items() if stage in v['stages']}
             if fn.__name__=='update_shape_or_asset':allowed={k:v for k,v in allowed.items() if k in ('plate.depth_ratio','plate.rx','plate.ry')}
+            if session.scene.classified and fn.__name__ in session.capabilities()['tools']:
+                ids=session.capabilities()['tools'][fn.__name__]['parameter_ids'];allowed={k:v for k,v in registry.items() if k in ids}
             props['updates']=dict(type='object',properties={k:dict(type='number',minimum=p['lower'],maximum=p['upper']) for k,p in allowed.items()},additionalProperties=False)
         if 'parameter_ids' in props:
-            props['parameter_ids']=dict(anyOf=[dict(type='array',items=dict(type='string',enum=[k for k,p in registry.items() if 'geometry' in p['stages']])),dict(type='null')],default=None)
+            ids=[k for k,p in registry.items() if ('appearance' if fn.__name__=='fit_appearance' else 'geometry') in p['stages']]
+            props['parameter_ids']=dict(anyOf=[dict(type='array',items=dict(type='string',enum=ids)),dict(type='null')],default=None)
         tools.append(tool)
     return MCPServer('Movens-Sim',version='3.0',tools=tools,log_level='WARNING')
 

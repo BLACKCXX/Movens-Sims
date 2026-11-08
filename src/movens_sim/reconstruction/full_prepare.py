@@ -24,6 +24,10 @@ from .budget import BudgetManager
 
 def create_manifest(config):
     """Freeze every original ID, regardless of historical dynamic acceptance."""
+    if config.get('workflow')=='classified_reconstruction_v4':
+        manifest=read(ROOT/config['manifest'])
+        if config['allowed_episodes']!=[0,1,2] or [e['episode'] for e in manifest['entries']]!=[0,1,2]:raise ValueError('The isolated task must contain exactly episodes 0,1,2')
+        return manifest
     root=ROOT/config['run_root'];root.mkdir(parents=True,exist_ok=True)
     manifest_path=ROOT/config['manifest']
     if manifest_path.exists():

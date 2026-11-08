@@ -23,11 +23,13 @@ class ReconstructionSession:
         task=config['task_group_id']
         budget_id=f"{task}/episode_{read(self.run/'source_manifest.json')['episode']:06}" if config.get('batch',{}).get('enabled') else task
         self.budget=BudgetManager(ROOT/'runs/_task_budgets'/f'{task}.sqlite',budget_id,config['budget'])
-        self.scene=SceneBackend(self.run/'inputs/template_static/scene.xml',self.run/'inputs/template_physics/scene.xml',self.run/'inputs/physics_state_by_name.npz',read(self.run/'initial_parameters.json'),read(self.run/'camera.json'),support_top_only=config.get('initialization',{}).get('mode')=='fk_h0',initialize_supported=config.get('initialization',{}).get('mode')=='fk_h0')
+        self.scene=SceneBackend(self.run/'inputs/template_static/scene.xml',self.run/'inputs/template_physics/scene.xml',self.run/'inputs/physics_state_by_name.npz',read(self.run/'initial_parameters.json'),read(self.run/'camera.json'),support_top_only=config.get('initialization',{}).get('mode')=='fk_h0',initialize_supported=config.get('initialization',{}).get('mode')=='fk_h0',config=config)
         self.scene.allow_camera_revision=config['camera'].get('allow_revision',True)
         if self.scene.initial_support_seed and not (self.run/'support_search_seed.json').exists():
             write(self.run/'support_search_seed.json',dict(method='geometric_feasible_XY_seed_v1',updates=self.scene.initial_support_seed,immutable_fk_preserved=True,no_table_or_scale_change=True))
-        self.observation=load_observation(run);self.state_path=self.run/'session.json'
+        self.observation=load_observation(run)
+        if self.scene.classified:self.observation['version']+='_render_'+self.scene.render_contract[:12]
+        self.state_path=self.run/'session.json'
         self.state=read(self.state_path) if self.state_path.exists() else dict(stage='geometry',shape_enabled=False,plate_tilt_enabled=False,rounds=[],operations=[],geometry_review_passed=False)
         if self.state.get('camera_override'):self.scene.locked_camera=self.state['camera_override']
         if 'params' in self.state:self.scene.apply(self.state['params'],internal=True)
@@ -42,6 +44,10 @@ class ReconstructionSession:
                 if not (self.run/name).is_file() or sha(self.run/name)!=expected:raise SceneError('input_identity_mismatch',name)
 
     def save(self):
+        if self.scene.classified and self.state.get('candidate_id')!=self.scene.candidate_id():
+            from .review_state import invalidate
+            invalidate(self.state,self.state.get('params',{}),self.scene.params,self.state.get('camera_override'),self.scene.locked_camera)
+            self.state['scene_revision']=self.state.get('scene_revision',0)+1
         self.state.update(params=self.scene.params.copy(),camera_override=self.scene.locked_camera,candidate_id=self.scene.candidate_id(),stage=self.scene.stage,shape_enabled=self.scene.shape_enabled,plate_tilt_enabled=getattr(self.scene,'plate_tilt_enabled',False))
         write(self.state_path,self.state)
 
@@ -50,6 +56,9 @@ class ReconstructionSession:
         return result
 
     def capabilities(self):
+        if self.scene.classified:
+            from .operations import capabilities
+            return capabilities(self)
         return dict(object_absolute_scale=True,joint_xy_size_fit=True,local_saved_triangle_support=True,shape_parameters=['plate.depth_ratio'],plate_tilt='evidence_required',arbitrary_mesh_deformation=False,renderer_material='Phong specular/shininess; no ineffective PBR roughness',camera_policy='LOCKED for this batch; no camera/FOV edits' if self.config['camera'].get('allow_revision') is False else 'fixed by default; shared-residual bounded independent hypothesis only',terminal_read_only=self.scene.stage=='final_readonly')
 
     def check_id(self,candidate_id):
@@ -59,6 +68,10 @@ class ReconstructionSession:
     def propose_or_apply_object_update(self,updates,candidate_id,apply=False):
         self.check_id(candidate_id)
         if self.scene.stage!='geometry':raise SceneError('wrong_stage','object update')
+        if self.scene.classified:
+            from .operations import current_evaluation,allowed_parameters
+            if set(updates)-set(allowed_parameters(self,'objects')):raise SceneError('invalid_object_parameter','Use update_environment for table/cloth geometry')
+            current_evaluation(self,'geometry')
         self.scene.validate(updates,'geometry');old=self.scene.params.copy()
         try:
             with self.budget.computation(dict(kind='tool_physical_trial')):
@@ -76,6 +89,10 @@ class ReconstructionSession:
     def fit_geometry(self,parameter_ids=None,candidate_id=None,evidence='',confidence=0.):
         if candidate_id:self.check_id(candidate_id)
         if self.scene.stage!='geometry':raise SceneError('wrong_stage','fit_geometry')
+        if self.scene.classified:
+            from .operations import current_evaluation
+            current_evaluation(self,'geometry')
+            if parameter_ids is None:parameter_ids=['apple.x','apple.y','apple.scale','plate.x','plate.y','plate.scale']
         if parameter_ids is not None:
             allowed={p['id'] for p in self.scene.registry() if 'geometry' in p['stages']}
             if not parameter_ids or len(set(parameter_ids))!=len(parameter_ids) or set(parameter_ids)-allowed:raise SceneError('invalid_parameter_subset','Need distinct supported geometry parameter IDs')
@@ -89,11 +106,23 @@ class ReconstructionSession:
         index=pending[-1]['detail']['round_index'] if pending else int(summary['used'].get('geometry_rounds',0))
         try:
             with self.budget.computation(dict(kind='complete_geometry_round',round_index=index),whole_task_slice=True):
+                environment_fit=self.scene.classified and parameter_ids and all(k.startswith('table.') or k=='cloth.coverage' for k in parameter_ids)
+                if environment_fit:
+                    from .optimize import environment_hypotheses
+                    self.evaluator.stage='geometry';self.evaluator.pool='render_repair';self.evaluator.objective_mode='coverage_feasibility';environment_hypotheses(self.evaluator)
+                if self.scene.classified and parameter_ids and any(k in ('plate.rx','plate.ry') for k in parameter_ids):
+                    from .optimize import plate_orientation_hypotheses
+                    self.evaluator.stage='geometry';self.evaluator.pool='render_repair';plate_orientation_hypotheses(self.evaluator)
                 result=fit_geometry(self.evaluator,parameter_ids,index,pending[-1]['id'] if pending else None)
         except BudgetExceeded as exc:
             best=self.evaluator.best.get('geometry_640x480')
             if not best:raise
             result=dict(round_index=index,parameter_ids=parameter_ids,stop_reason=str(exc),best_candidate_id=best['candidate_id'],best_loss=best['loss'])
+        if self.scene.classified and getattr(self.evaluator,'objective_mode',None):
+            self.evaluator.objective_mode=None
+            for key,best in self.evaluator.best.items():
+                if key.startswith('geometry_'):best['loss']=best['metrics']['image_loss']+.002*sum((np.log(best['params'][label+'.scale'])/np.log(2))**2 for label in ('apple','plate'))
+            self.evaluator.checkpoint();result['selection_objective']='Absolute coverage feasibility plus the common image objective'
         self.state['rounds'].append(result);self.save();return result
 
     def update_shape_or_asset(self,updates,evidence,confidence,candidate_id):
@@ -111,12 +140,15 @@ class ReconstructionSession:
 
     def update_appearance(self,updates,candidate_id):
         self.check_id(candidate_id)
-        if self.scene.stage!='appearance' or not self.state['geometry_review_passed']:raise SceneError('wrong_stage','Valid Terra geometry review required')
+        if self.scene.stage!='appearance' or (not self.scene.classified and not self.state['geometry_review_passed']):raise SceneError('wrong_stage','Valid Terra geometry review required')
         self.scene.validate(updates,'appearance');params={**self.scene.params,**updates};self.evaluator.stage='appearance';self.evaluator.pool='render_appearance'
         loss,metrics=self.evaluator.evaluate(params,'tool_appearance',640,480);self.save();return dict(loss=loss,metrics=metrics,candidate_id=self.scene.candidate_id())
 
     def review_camera_hypothesis(self,evidence,confidence,candidate_id):
         """Independent bounded hypotheses, only for common unexplained projection error."""
+        if self.scene.classified:
+            from .operations import camera_hypotheses
+            return camera_hypotheses(self,evidence,confidence,candidate_id)
         self.check_id(candidate_id)
         if self.config['camera'].get('allow_revision') is False:raise SceneError('camera_locked_for_batch','This batch fixes the selected Mount prior and FOV')
         if self.scene.stage!='geometry' or not self.state['rounds']:raise SceneError('wrong_stage','Object fitting must precede camera review')
@@ -182,5 +214,29 @@ class ReconstructionSession:
             self.evaluator.best=read(folder/'search_best.json');self.evaluator.checkpoint()
         self.save()
         return dict(candidate_id=self.scene.candidate_id(),budget_rollback=False)
+
+    def inspect_environment(self,candidate_id):
+        from .operations import inspect_environment
+        return inspect_environment(self,candidate_id)
+
+    def update_environment(self,updates,evidence,confidence,candidate_id):
+        from .operations import update_environment
+        return update_environment(self,updates,evidence,confidence,candidate_id)
+
+    def render_auxiliary(self,candidate_id):
+        from .operations import render_auxiliary
+        return render_auxiliary(self,candidate_id)
+
+    def diagnose_support(self,candidate_id):
+        from .operations import diagnose_support
+        return diagnose_support(self,candidate_id)
+
+    def repair_support(self,updates,evidence,confidence,candidate_id):
+        from .operations import repair_support
+        return repair_support(self,updates,evidence,confidence,candidate_id)
+
+    def fit_appearance(self,parameter_ids=None,candidate_id=None):
+        from .operations import fit_appearance
+        return fit_appearance(self,parameter_ids,candidate_id)
 
     def close(self):self.scene.close()

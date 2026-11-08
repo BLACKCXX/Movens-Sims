@@ -60,6 +60,9 @@ class Evaluator:
                     self.budget.record('render_passes',dict(rgb=1,segmentation=1),time.monotonic()-start)
                 prior=.002*sum((np.log(params[label+'.scale'])/np.log(2))**2 for label in ('apple','plate'))
                 loss=metrics['appearance_loss'] if self.stage=='appearance' else metrics['image_loss']+prior
+                if getattr(self,'objective_mode',None)=='coverage_feasibility':
+                    t=self.config['acceptance'];table=metrics['table']
+                    loss+=10.*(max(0.,t['cloth_iou_min']-table['cloth_iou'])+max(0.,t['top_cloth_iou_min']-table['top_cloth_iou'])+max(0.,table['false_background_on_real_cloth_fraction']-t['false_background_max']))
                 previous=self.best.get(key)
                 reasons=nondegrading(metrics,previous['metrics'],self.config) if previous else []
                 if self.stage=='appearance' and (self.run/'geometry_frozen.json').exists():
@@ -92,7 +95,8 @@ class Evaluator:
         x0=(np.array([origin[k] for k in ids])-lo)/span;count=0;stale=0;last=self.improvements
         def objective(x):
             nonlocal count,stale,last
-            if count>=cap or stale>=self.config['fit']['local_no_improvement_evaluations']:raise StopIteration
+            stale_limit=max(self.config['fit']['local_no_improvement_evaluations'],24*len(ids)) if self.config.get('workflow')=='classified_reconstruction_v4' else self.config['fit']['local_no_improvement_evaluations']
+            if count>=cap or stale>=stale_limit:raise StopIteration
             count+=1;p=origin.copy();p.update({k:float(v) for k,v in zip(ids,lo+x*span)})
             loss,_=self.evaluate(p,tag,width,height)
             stale=0 if self.improvements>last else stale+1;last=self.improvements
@@ -103,6 +107,63 @@ class Evaluator:
         return self.best.get(key)
 
 
+def projection_refit(scene,observation,budget,params,labels=('apple','plate')):
+    """Joint XY/absolute scale reseed for a fixed orientation/camera hypothesis."""
+    result=params.copy();r=np.asarray(scene.locked_camera['rotation_camera_to_world']);eye=np.asarray(scene.locked_camera['xyz_m']);f=240/np.tan(np.radians(scene.locked_camera['fovy_deg']/2));reg={p['id']:p for p in scene.registry()}
+    for label in labels:
+        body=scene.model.body(label+'_root').id;rotation=scene.data.xmat[body].reshape(3,3);position=scene.data.xpos[body]
+        local=(scene.vertices(label)-position)@rotation/scene.params[label+'.scale'];collision=(scene.sample_collision(label)-position)@rotation/scene.params[label+'.scale']
+        orientation=Rotation.from_rotvec([result[label+'.rx'],result[label+'.ry'],result.get(label+'.rz',0.)],degrees=True).as_matrix()@matrix_from_quat(scene.initial_poses[label]['quaternion_wxyz'])
+        yy,xx=np.where(observation['target'][label]);target=polygon_features(np.c_[xx,yy],640,480);ids=[label+'.x',label+'.y',label+'.scale'];lo=np.array([reg[k]['lower'] for k in ids]);hi=np.array([reg[k]['upper'] for k in ids]);span=hi-lo
+        def residual(x):
+            budget.reserve('projection_evaluations',detail=dict(object=label,kind='bounded_hypothesis_reseed'))
+            values=lo+x*span;col=collision*values[2]@orientation.T;col[:,:2]+=values[:2];height=scene.support(col[:,:2])
+            if not np.isfinite(height).all():return np.ones(6)*5
+            z=-np.min(col[:,2]-height);world=local*values[2]@orientation.T+np.r_[values[:2],z];view=(world-eye)@r;depth=-view[:,2]
+            if depth.min()<.02:return np.ones(6)*5
+            pixels=np.c_[320+f*view[:,0]/depth,240-f*view[:,1]/depth]
+            return np.r_[(polygon_features(pixels,640,480)-target)*[5,5,9,9,8],np.log(values[2])*.0005]
+        x0=np.clip((np.array([result[k] for k in ids])-lo)/span,1e-6,1-1e-6)
+        fit=least_squares(residual,x0,bounds=(np.zeros(3),np.ones(3)),diff_step=.002,max_nfev=45,ftol=1e-7,xtol=1e-7,gtol=1e-7)
+        result.update({k:float(v) for k,v in zip(ids,lo+fit.x*span)})
+    return result
+
+
+def plate_orientation_hypotheses(evaluator):
+    scene=evaluator.scene;base=scene.params.copy();rows=[]
+    poses=[(0.,0.),(-2.5,0.),(2.5,0.),(-5.,0.),(5.,0.),(0.,-2.5),(0.,2.5),(0.,-5.),(0.,5.),(-2.,-2.),(-2.,2.),(2.,-2.),(2.,2.)]
+    for rx,ry in poses:
+        proposal={**base,'plate.rx':rx,'plate.ry':ry}
+        proposal=projection_refit(scene,evaluator.observation,evaluator.budget,proposal,('plate',))
+        loss,metrics=evaluator.evaluate(proposal,f'plate_tilt_hypothesis_{rx}_{ry}',640,480)
+        rows.append(dict(rx_deg=rx,ry_deg=ry,params=proposal,loss=loss,objects=metrics['objects'] if metrics else None))
+    record=dict(control=base,candidates=rows,interpretation='Bounded image hypothesis after joint XY/scale reseed, not measured real orientation; native rest remains independent')
+    write(evaluator.run/'plate_hypotheses'/('comparison_'+digest(record)[:16]+'.json'),record)
+    write(evaluator.run/'plate_orientation_hypotheses.json',record)
+    return rows
+
+
+def environment_hypotheses(evaluator):
+    """Cross flat visibility plateaus with physical plane candidates, scoring absolute gates."""
+    from .environment import coverage_seed
+    scene=evaluator.scene;base=scene.params.copy();rows=[]
+    evaluator.best.pop('geometry_640x480',None);evaluator.evaluate(base,'coverage_feasibility_baseline',640,480)
+    seed=coverage_seed(scene,evaluator.observation)['updates'];proposals=[{**base,**seed}]
+    values=sorted(set([*np.linspace(1,2.5,13),*np.clip(base['table.depth_scale']+np.array([-.15,-.1,-.05,-.02,.02,.05,.1]),1,2.5)]))
+    proposals += [{**base,'cloth.coverage':1.,'table.depth_scale':float(v)} for v in values]
+    for p in proposals:
+        loss,metrics=evaluator.evaluate(p,'physical_plane_depth_hypothesis',640,480)
+        if metrics:rows.append(dict(params=p,loss=loss,coverage=metrics['table']))
+    best=evaluator.best['geometry_640x480']['params'].copy()
+    widths=sorted(set([*np.linspace(1,1.6,9),*np.clip(best['table.width_scale']+np.array([-.03,-.01,.01,.03]),1,1.6)]))
+    for width in widths:
+        p={**best,'table.width_scale':float(width)};loss,metrics=evaluator.evaluate(p,'physical_plane_width_hypothesis',640,480)
+        if metrics:rows.append(dict(params=p,loss=loss,coverage=metrics['table']))
+    record=dict(control=base,hypotheses=rows,objective='Canonical image loss plus 10x absolute cloth/top/false-background gate violation; no threshold changes',visual_extension_support=False)
+    write(evaluator.run/'environment_hypotheses'/('comparison_'+digest(record)[:16]+'.json'),record)
+    return record
+
+
 def projection_candidates(scene,observation,budget,config):
     """Continuous geometry projection; every residual call uses the global ledger."""
     w,h=640,480;r=np.asarray(scene.locked_camera['rotation_camera_to_world']);eye=np.asarray(scene.locked_camera['xyz_m']);f=h/2/np.tan(np.radians(scene.locked_camera['fovy_deg']/2))
@@ -111,7 +172,7 @@ def projection_candidates(scene,observation,budget,config):
         b=scene.model.body(label+'_root').id;position=scene.data.xpos[b];rotation=scene.data.xmat[b].reshape(3,3)
         local=(scene.vertices(label)-position)@rotation/initial[label+'.scale'];collision=(scene.sample_collision(label)-position)@rotation/initial[label+'.scale']
         yy,xx=np.where(observation['target'][label]);target=polygon_features(np.c_[xx,yy],w,h)
-        ids=[label+'.x',label+'.y',label+'.scale']+(['apple.rx','apple.ry','apple.rz'] if label=='apple' else [])
+        ids=[label+'.x',label+'.y',label+'.scale']+(['apple.rx','apple.ry','apple.rz'] if label=='apple' and not config['fit'].get('prefer_upright',False) else [])
         lo=np.array([reg[k]['lower'] for k in ids]);hi=np.array([reg[k]['upper'] for k in ids]);span=hi-lo
         starts=qmc.Sobol(len(ids),scramble=True,seed=config['fit']['seed']+(label=='plate')).random_base2(4)
         base=np.array([initial[k] for k in ids]);starts[0]=(base-lo)/span
@@ -119,7 +180,7 @@ def projection_candidates(scene,observation,budget,config):
         def residual(x):
             budget.reserve('projection_evaluations',detail=dict(object=label))
             vals=lo+x*span;p=dict(zip(ids,vals));rot=matrix_from_quat(scene.initial_poses[label]['quaternion_wxyz'])
-            if label=='apple':rot=Rotation.from_rotvec(vals[3:],degrees=True).as_matrix()@rot
+            if len(vals)>3:rot=Rotation.from_rotvec(vals[3:],degrees=True).as_matrix()@rot
             col=collision*vals[2]@rot.T;col[:,:2]+=vals[:2];height=scene.support(col[:,:2])
             if not np.isfinite(height).all():return np.r_[np.ones(5)*5,(np.log(vals[2])*.005)]
             z=-np.min(col[:,2]-height);world=local*vals[2]@rot.T+np.r_[vals[:2],z];view=(world-eye)@r;depth=-view[:,2]

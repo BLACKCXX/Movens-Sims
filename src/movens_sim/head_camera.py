@@ -263,6 +263,10 @@ def save_candidate(scene,folder,run,config,baseline,metadata):
 
 
 def rest_diagnostic(scene,folder,config):
+    if config.get('rest_acceptance',{}).get('basis')=='terminal':
+        from .reconstruction.diagnostics import rest_from_disk
+        path=scene.export(Path(folder)/'physics',physics=True)
+        return rest_from_disk(path,folder,config)
     folder=Path(folder);path=scene.export(folder/'physics',physics=True)
     model=mujoco.MjModel.from_xml_path(str(path));data=mujoco.MjData(model)
     with np.load(path.with_suffix('.state.npz')) as z:data.qpos[:]=z['qpos'];data.qvel[:]=z['qvel']

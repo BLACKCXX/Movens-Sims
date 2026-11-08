@@ -50,7 +50,7 @@ def setup(config):
     for record in read(m['assets_manifest']).values():
         asset=Path(record['path'])
         if sha(asset)!=record['sha256']:raise ValueError('Shared input asset changed: '+str(asset))
-        asset.chmod(0o444)
+        if config.get('workflow')!='classified_reconstruction_v4':asset.chmod(0o444)
     target=root/'resolved_config.json'
     if target.exists() and read(target)!=config:raise ValueError('Batch config changed; resume cannot relabel prior work or budgets')
     write(target,config)
@@ -78,7 +78,7 @@ def setup(config):
             except (OSError,ValueError,KeyError):bad.append('delivery_binding.json')
             if bad:db.execute("UPDATE tasks SET status='failed',stage='delivery_integrity',reason=?,quality=NULL WHERE episode=?",('Incomplete completed delivery: '+','.join(bad),row['episode']))
     write(root/'handoff.json',dict(root=str(root),config=str(target),manifest=str(ROOT/config['manifest']),model=config['terra']['model'],initial_workers=config['batch']['initial_workers'],max_workers=config['batch']['max_workers'],
-        commands={a:f"cd {ROOT} && .venv/bin/python -B scripts/run_full_reconstruction.py {a} --config configs/full402_h0_v1.json" for a in ('status','stop','resume')},
+        commands={a:f"cd {ROOT} && .venv/bin/python -B scripts/run_full_reconstruction.py {a} --config {config.get('config_path','configs/full402_h0_v1.json')}" for a in ('status','stop','resume')},
         scope='Static scene reconstruction only; no training, slicing or checkpoint tests',source_project_read_only=True))
     return root,m
 
@@ -104,6 +104,8 @@ def _receipt(root,ep,attempt):return root/'control/receipts'/f'episode_{ep:06}_a
 
 def worker(config,ep,attempt):
     from .reconstruction.workflow import run_pipeline
+    if config.get('workflow')=='classified_reconstruction_v4':
+        from .reconstruction.classified import run_pipeline
     from .reconstruction.control import BatchPaused
     root=ROOT/config['run_root'];run=root/f'episode_{ep:06}';receipt=_receipt(root,ep,attempt);start=time.monotonic()
     entry=next(e for e in read(ROOT/config['manifest'])['entries'] if e['episode']==ep)
@@ -180,7 +182,7 @@ def publish(root,config,phase='running',resource=None):
         cards.append(f'<tr><td>{r["episode"]}</td><td>{html.escape(r["status"])}</td><td>{html.escape(r["stage"] or "")}</td><td>{links}</td><td>{html.escape(r["reason"] or "")}</td></tr>')
     buf=io.StringIO();w=csv.DictWriter(buf,fieldnames=list(csvrows[0]));w.writeheader();w.writerows(csvrows)
     temp=root/'results.csv.tmp';temp.write_text(buf.getvalue());temp.replace(root/'results.csv')
-    summary=dict(phase=phase,total=402,counts=counts,quality=qualified,pending_total=sum(r['status'] not in ['complete','failed','missing_input'] for r in rows),
+    summary=dict(phase=phase,total=len(rows),counts=counts,quality=qualified,pending_total=sum(r['status'] not in ['complete','failed','missing_input'] for r in rows),
                  model=config['terra']['model'],resources=resource,updated_utc=now(),coordinator_pid=os.getpid(),running=[{k:r[k] for k in ['episode','pid','gpu','stage']} for r in rows if r['status']=='running'])
     write(root/'summary.json',summary)
     doc='<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>Movens-Sim 全402条</title><style>body{font:16px system-ui;background:#171b21;color:#eee;margin:24px}a{color:#8cd3ff}td{padding:8px;border-bottom:1px solid #444}pre{white-space:pre-wrap}</style><h1>Movens-Sim · 402条 h0 静态重建</h1><p>固定 Mount 相机；静态仿真展示，非真实采集、非交互回放。构建、视觉、物理结果分别统计。</p><pre>'+html.escape(json.dumps(summary,ensure_ascii=False,indent=2))+'</pre><a href="results.csv">全402行汇总表</a><table><tr><th>Episode</th><th>状态</th><th>阶段</th><th>产物</th><th>原因</th></tr>'+''.join(cards)+'</table>'
@@ -234,7 +236,7 @@ def coordinate(config):
             if (root/'STOP').exists():
                 if not running_count:publish(root,config,'stopped',previous);break
                 time.sleep(1);continue
-            if counts.get('complete',0)+counts.get('failed',0)+counts.get('missing_input',0)==402:
+            if counts.get('complete',0)+counts.get('failed',0)+counts.get('missing_input',0)==settings.get('expected_episodes',402):
                 publish(root,config,'complete',previous);break
             circuit=read(root/'control/api_circuit.json') if (root/'control/api_circuit.json').exists() else {}
             paused=circuit.get('manual_pause') or circuit.get('paused_until',0)>t
@@ -245,7 +247,9 @@ def coordinate(config):
                 with connect(root) as db:
                     db.execute('BEGIN IMMEDIATE')
                     statuses="('pending','retry','stopped')" if paused else "('pending','retry','waiting_api','stopped')"
-                    row=db.execute(f"SELECT * FROM tasks WHERE status IN {statuses} AND not_before<=? ORDER BY CASE WHEN status='pending' THEN 1 ELSE 0 END,episode LIMIT 1",(t,)).fetchone()
+                    first=db.execute('SELECT status FROM tasks WHERE episode=0').fetchone()
+                    first_filter=' AND episode=0' if settings.get('ep0_first') and first and first[0] not in ('complete','failed','missing_input') else ''
+                    row=db.execute(f"SELECT * FROM tasks WHERE status IN {statuses} AND not_before<=? {first_filter} ORDER BY CASE WHEN status='pending' THEN 1 ELSE 0 END,episode LIMIT 1",(t,)).fetchone()
                     if row is None:break
                     row=dict(row);ep=row['episode'];attempt=row['attempts']+1
                     if row['status']=='waiting_api' and paused:break

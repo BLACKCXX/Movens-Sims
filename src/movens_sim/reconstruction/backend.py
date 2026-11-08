@@ -119,7 +119,9 @@ class SupportSurface:
 
 
 class SceneBackend:
-    def __init__(self, static_xml, physics_xml=None, physics_state=None, initial=None, camera=None, support_top_only=False, initialize_supported=False):
+    def __init__(self, static_xml, physics_xml=None, physics_state=None, initial=None, camera=None, support_top_only=False, initialize_supported=False, config=None):
+        self.config=config or {};self.classified=self.config.get('workflow')=='classified_reconstruction_v4'
+        self.support_limits=self.config.get('initial_support',dict(gap_min_m=-.001,gap_max_m=.002,pair_penetration_m_max=.001))
         self.path=Path(static_xml);self.physics_path=Path(physics_xml) if physics_xml else None
         self.physics_state=Path(physics_state) if physics_state else None
         self.template=absolute_assets(ET.parse(self.path).getroot(),self.path.parent)
@@ -127,6 +129,9 @@ class SceneBackend:
         authored=ET.parse(self.path).getroot()
         self.asset_hashes={node.get('file'):sha((self.path.parent/node.get('file')).resolve()) for node in authored.findall('./asset/*') if node.get('file')}
         self.source_hash=digest(dict(xml=sha(self.path),assets=self.asset_hashes));self.cache=OrderedDict();self.stage='geometry';self.shape_enabled=False
+        if self.classified:
+            self.render_contract=digest({name:sha(Path(__file__).parent/name) for name in ('backend.py','environment.py','appearance.py')})
+            self.source_hash=digest(dict(source=self.source_hash,render_contract=self.render_contract))
         self.render_passes=0;self.initial_poses={};self.locked_camera=camera
         self.params={}
         for label in ('apple','plate'):
@@ -144,6 +149,10 @@ class SceneBackend:
             vertices.append(points);faces.append(self.model.mesh_face[a:a+n]+offset);offset+=len(points)
         if not vertices:raise SceneError('missing_support','No frozen physical soft surface')
         self.support=SupportSurface(np.concatenate(vertices),np.concatenate(faces),top_only=support_top_only)
+        if self.classified:
+            from .environment import capture_environment
+            capture_environment(self)
+            self.params.update({'table.depth_scale':1.,'table.width_scale':1.,'table.front_extension':0.,'cloth.coverage':0.})
         self.registry_entries=self._registry()
         self.initial_support_seed={}
         if initialize_supported:
@@ -186,6 +195,9 @@ class SceneBackend:
             for a in 'xy':add(label+'.r'+a,'deg',-45. if label=='apple' else -5.,45. if label=='apple' else 5.,['geometry'],'Supported orientation; plate tilt requires explicit residual evidence')
         add('apple.rz','deg',-180.,180.,['geometry'],'Apple orientation around world Z')
         add('plate.depth_ratio','ratio',.7,1.3,['geometry'],'Additional vertical profile scale, only after recorded shape evidence')
+        if self.classified:
+            for key,lo,hi in [('table.depth_scale',1.,2.5),('table.width_scale',1.,1.6),('table.front_extension',0.,.15),('cloth.coverage',0.,1.)]:
+                add(key,'m' if key.endswith('extension') else 'ratio',lo,hi,['geometry'],'Absolute world-plane extent; physical soft patch is never stretched; display cloth cannot support objects')
         for id,lo,hi in [('light.ambient',.1,.8),('light.diffuse',.1,1.),('cloth.gray',.1,.65),('plate.albedo',.45,1.),('material.specular',0.,1.6),('material.shininess',.2,2.),('apple.tint_r',.3,1.6),('apple.tint_g',.3,1.6),('apple.tint_b',.3,1.6),('apple.yellow_mix',0.,.8)]:add(id,'ratio' if 'tint' in id or 'mix' in id or 'material' in id else 'linear_rgb_or_phong',lo,hi,['appearance'],'Renderer-supported appearance control; material values multiply their immutable authored baselines; geometry locked')
         return entries
 
@@ -204,6 +216,9 @@ class SceneBackend:
 
     def _xml(self, params, physics=False):
         root=copy.deepcopy(self.physics_template if physics else self.template);virtual={}
+        if self.classified and hasattr(self,'environment_geometry'):
+            from .environment import apply_environment
+            apply_environment(self,root,virtual,params)
         for label in ('apple','plate'):scale_object(root,label,params[label+'.scale'],params['plate.depth_ratio'] if label=='plate' else 1.)
         cam=root.find(".//camera[@name='approx_ego_camera']")
         if self.locked_camera:
@@ -227,6 +242,12 @@ class SceneBackend:
                 if label=='apple' and params['apple.yellow_mix']>0:
                     tex=root.find(f"./asset/texture[@name='{node.get('texture')}']")
                     if tex is not None and tex.get('file'):
+                        if self.classified:
+                            from .appearance import apple_texture
+                            visual=next(g for g in b.iter('geom') if g.get('material')==name and g.get('mesh'))
+                            mesh=root.find(f"./asset/mesh[@name='{visual.get('mesh')}']")
+                            filename='v4_height_apple_texture.png';virtual[filename]=apple_texture(tex.get('file'),mesh.get('file'),params['apple.yellow_mix']);tex.set('file',filename)
+                            continue
                         img=np.array(Image.open(tex.get('file')).convert('RGB'),float)/255.;yy=np.linspace(1.,0.,img.shape[0])[:,None,None]
                         mix=params['apple.yellow_mix']*yy;lum=img.max(2,keepdims=True);yellow=lum*np.array([1.,.83,.12]);rgb=np.clip((1-mix)*img+mix*yellow,0,1)
                         buf=io.BytesIO();Image.fromarray((rgb*255).astype(np.uint8)).save(buf,format='PNG');filename='v3_apple_texture.png';virtual[filename]=buf.getvalue();tex.set('file',filename)
@@ -299,8 +320,8 @@ class SceneBackend:
             minimum=float(np.min(gap)) if finite else None
             body=self.model.body(label+'_root').id
             result[label]=dict(xyz_m=self.data.xpos[body].tolist(),quaternion_wxyz=self.data.xquat[body].tolist(),signed_support_gap_m=minimum,penetration_m=max(0.,-minimum) if finite else None,visual_support_gap_m=float(np.nanmin(vg)) if np.isfinite(vg).any() else None,footprint_inside_physical_support=finite,dimensions_world_m=np.ptp(visual,axis=0).tolist(),aabb_world_m=[pts.min(0).tolist(),pts.max(0).tolist()],mass_kg=float(sum(self.model.body_mass[list(self.descendants[label])])),absolute_scale=self.params[label+'.scale'])
-            if not finite or minimum is None or not -.001<=minimum<=.002:failures.append(label+'.support')
-            if not np.isfinite(vg).all() or not -.001<=float(np.nanmin(vg))<=.002:failures.append(label+'.visual_support')
+            if not finite or minimum is None or not self.support_limits['gap_min_m']<=minimum<=self.support_limits['gap_max_m']:failures.append(label+'.support')
+            if not np.isfinite(vg).all() or not self.support_limits['gap_min_m']<=float(np.nanmin(vg))<=self.support_limits['gap_max_m']:failures.append(label+'.visual_support')
         bounds=[np.array(result[k]['aabb_world_m']) for k in ('apple','plate')]
         overlap=bool(np.all(np.minimum(bounds[0][1],bounds[1][1])>np.maximum(bounds[0][0],bounds[1][0])))
         distance=None
@@ -311,7 +332,7 @@ class SceneBackend:
                 for b in self.geom_sets['plate']:
                     if self.model.geom_contype[b] or self.model.geom_conaffinity[b]:distances.append(float(mujoco.mj_geomDistance(self.model,self.data,int(a),int(b),.05,None)))
             distance=min(distances)
-            if distance<-.001:failures.append('apple_plate.intersection')
+            if distance < -self.support_limits['pair_penetration_m_max']:failures.append('apple_plate.intersection')
         result.update(physical_valid=not failures,failures=failures,object_pair_distance_m=distance,support_policy='Barycentric interpolation on saved deformed visible triangles; collision vertices and face centroids; flex thickness/dynamics checked separately',support_height_range_m=self.support.height_range,physical_support_xy_bounds_m=self.support.bounds.tolist())
         return result
 

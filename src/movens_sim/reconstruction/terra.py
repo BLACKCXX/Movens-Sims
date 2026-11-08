@@ -23,6 +23,9 @@ ACTION_TOOLS=['fit_geometry','propose_or_apply_object_update','update_shape_or_a
 
 
 def response_schema(scene,final=False):
+    if getattr(scene,'classified',False):
+        from .classified_terra import response_schema as categorical_schema
+        return categorical_schema(scene,final)
     def obj(properties):return dict(type='object',properties=properties,required=list(properties),additionalProperties=False)
     text=dict(type='string');unit=dict(type='string',enum=sorted({p['unit'] for p in scene.registry()}))
     editable=[p['id'] for p in scene.registry() if scene.stage in p['stages']] or [p['id'] for p in scene.registry()]
@@ -34,6 +37,9 @@ def response_schema(scene,final=False):
 
 
 def validate_review(parsed,session,final=False):
+    if session.scene.classified:
+        from .classified_terra import validate_review as categorical_validate
+        return categorical_validate(parsed,session,final)
     jsonschema.validate(parsed,response_schema(session.scene,final))
     if parsed['candidate_id']!=session.scene.candidate_id():raise SceneError('stale_candidate','Terra candidate mismatch')
     if parsed['stage']!=('FINAL_READONLY' if final else 'GEOMETRY'):raise SceneError('wrong_stage','Terra stage mismatch')
@@ -57,6 +63,9 @@ def validate_review(parsed,session,final=False):
 
 
 def bundle(session,metrics,rgb,masks,final=False,delivery_binding=None):
+    if session.scene.classified:
+        from .classified_terra import bundle as categorical_bundle
+        return categorical_bundle(session,metrics,rgb,masks,final,delivery_binding)
     run=session.run;candidate=session.scene.candidate_id();stage='FINAL_READONLY' if final else 'GEOMETRY';folder=run/'terra'/(stage.lower()+'_'+candidate);folder.mkdir(parents=True,exist_ok=True)
     save_rgb(folder/'real.png',session.observation['rgb']);save_rgb(folder/'render.png',rgb);save_rgb(folder/'overlay.png',overlay(session.observation['rgb'],masks,session.observation['target']))
     images=[('REAL FULL FRAME',folder/'real.png'),('SIM FULL FRAME',folder/'render.png'),('CONTOUR OVERLAY',folder/'overlay.png')]
@@ -86,6 +95,9 @@ def request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_b
 
 def _request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_binding=None,client_factory=OpenAI):
     existing=session.run/'terra'/(('final_readonly_' if final else 'geometry_')+session.scene.candidate_id())
+    if session.scene.classified:
+        from .classified_terra import review_key
+        existing=session.run/'terra'/review_key(session,final)
     for statusfile in sorted(existing.glob('attempt_*/status.json')):
         status=read(statusfile)
         if status.get('status')=='validated' and (statusfile.parent/'parsed.json').exists():
@@ -98,8 +110,11 @@ def _request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_
     key=credentials(session.config['terra']);status=dict(model=body['model'],request_sha256=digest(body),actual_http_request_started=False,api_response_received=False,stage='final_readonly' if final else 'geometry',folder=str(folder.relative_to(session.run)))
     if not enabled or not key:
         fixture=dict(candidate_id=session.scene.candidate_id(),stage='FINAL_READONLY' if final else 'GEOMETRY',verdict='needs_review',issues=[],proposed_actions=[],deferred_appearance_notes=['Explicit synthetic offline schema fixture; no model judgment'])
+        if session.scene.classified:
+            fixture['stage']='FINAL_READONLY' if final else session.state['active_category'].upper()
+            fixture['category_results']=[dict(category=c,verdict='needs_review',evidence='Offline fixture; no model judgment') for c in (session.config['classification']['categories'] if final else [session.state['active_category']])]
         validate_review(fixture,session,final);write(folder/'offline_fixture.json',fixture);status.update(status='prepared_offline',offline_contract_validated=True,credential_available=bool(key));write(status_path,status);return status,None
-    try:event=session.budget.reserve_terra(final,dict(candidate_id=session.scene.candidate_id(),request_sha256=digest(body),delivery_hash=delivery_binding.get('scene_parameter_asset_hash') if delivery_binding else None))
+    try:event=session.budget.reserve_terra(final,dict(candidate_id=session.scene.candidate_id(),category=session.state.get('active_category','geometry') if not final else 'final',request_sha256=digest(body),delivery_hash=delivery_binding.get('scene_parameter_asset_hash') if delivery_binding else None))
     except BudgetExceeded:
         status['status']='blocked_budget';write(status_path,status);return status,None
     attempt=folder/('attempt_'+event[:12]);attempt.mkdir()

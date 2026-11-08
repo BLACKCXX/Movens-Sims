@@ -34,6 +34,26 @@ class BudgetManager:
         db.execute('PRAGMA synchronous=FULL')
         return db
 
+    def terminal_events(self,db):
+        cutoff=db.execute("SELECT COALESCE(MAX(created),0) FROM events WHERE task=? AND kind='repair_revision'",(self.task_id,)).fetchone()[0]
+        return db.execute("SELECT created,detail FROM events WHERE task=? AND kind='terra_final' AND created>? ORDER BY created",(self.task_id,cutoff)).fetchall()
+
+    def begin_repair_revision(self,candidate_id,delivery_hash,reason,review_path):
+        """Append a successor to a preserved FAILED terminal candidate; never refund requests."""
+        if not self.task_id.startswith('ep012_reconstruction_v4_20261107/') or self.limits['terra_requests']!=20 or not reason:
+            raise ValueError('Repair revisions are restricted to the authorized isolated v4 task')
+        proof=json.loads(Path(review_path).read_text())
+        if proof.get('delivery_hash')!=delivery_hash or proof.get('status',{}).get('status')!='validated' or not proof.get('review') or proof['review'].get('candidate_id')!=candidate_id or proof['review'].get('verdict')=='pass':
+            raise ValueError('Only a preserved failed actual terminal review can start a successor')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE');markers=self.terminal_events(db)
+            if not markers:raise ValueError('No frozen candidate to supersede')
+            binding=json.loads(markers[0][1])
+            if binding.get('candidate_id')!=candidate_id or binding.get('delivery_hash')!=delivery_hash:raise ValueError('Preserved terminal binding mismatch')
+            import hashlib
+            detail=dict(parent_candidate_id=candidate_id,parent_delivery_hash=delivery_hash,reason=reason,review_path=str(review_path),review_sha256=hashlib.sha256(Path(review_path).read_bytes()).hexdigest(),budget_reset=False)
+            db.execute('INSERT INTO events(id,task,kind,amount,status,detail,created) VALUES (?,?,?,?,?,?,?)',(uuid.uuid4().hex,self.task_id,'repair_revision',0,'recorded',json.dumps(detail,sort_keys=True),time.time()))
+
     def reserve(self, kind, amount=1, detail=None):
         from .control import check_stop
         check_stop()
@@ -41,7 +61,7 @@ class BudgetManager:
             raise ValueError('Unknown budget kind or negative reservation')
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            if kind=='geometry_rounds' and db.execute("SELECT COUNT(*) FROM events WHERE task=? AND kind='terra_final'",(self.task_id,)).fetchone()[0]:
+            if kind=='geometry_rounds' and self.terminal_events(db):
                 raise BudgetExceeded('Task is frozen for terminal read-only review')
             used = db.execute('SELECT COALESCE(SUM(amount),0) FROM events WHERE task=? AND kind=?', (self.task_id, kind)).fetchone()[0]
             if used + amount > self.limits[kind] + 1e-9:
@@ -67,7 +87,7 @@ class BudgetManager:
         # Reserve the pool and total in one transaction. Neither may be refunded.
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute("SELECT COUNT(*) FROM events WHERE task=? AND kind='terra_final'",(self.task_id,)).fetchone()[0]:raise BudgetExceeded('Task is frozen; no further optimization renders')
+            if self.terminal_events(db) and pool not in ('render_diagnostic','render_export'):raise BudgetExceeded('Task is frozen; no further optimization renders')
             for kind in ('render_total', pool):
                 used = db.execute('SELECT COALESCE(SUM(amount),0) FROM events WHERE task=? AND kind=?', (self.task_id, kind)).fetchone()[0]
                 if used + 1 > self.limits[kind]:
@@ -86,11 +106,13 @@ class BudgetManager:
             db.execute('BEGIN IMMEDIATE')
             rows = db.execute("SELECT kind,COALESCE(SUM(amount),0) FROM events WHERE task=? AND kind IN ('terra_requests','terra_final') GROUP BY kind", (self.task_id,)).fetchall()
             used = dict(rows)
+            markers=self.terminal_events(db)
+            used['terra_final']=len(markers)
             limit = self.limits['terra_requests'] if final else self.limits['terra_requests']-1
             if (used.get('terra_final', 0) and not final) or used.get('terra_requests', 0) >= limit:
                 raise BudgetExceeded('Terra request limit/final reservation')
             if used.get('terra_final',0) and final:
-                marker=db.execute("SELECT created,detail FROM events WHERE task=? AND kind='terra_final' ORDER BY created LIMIT 1",(self.task_id,)).fetchone()
+                marker=markers[0]
                 binding=json.loads(marker[1])
                 if not binding.get('candidate_id'):
                     previous=db.execute("SELECT detail FROM events WHERE task=? AND kind='terra_requests' AND created<=? ORDER BY created DESC LIMIT 1",(self.task_id,marker[0])).fetchone()

@@ -54,9 +54,13 @@ def gate(metrics, geometry, baseline, config):
         checks={'iou':obj['iou']>=t['iou_min'],'center':obj['centroid_error_px']<=t['center_px_max'],'edge':obj['symmetric_edge_distance_px']<=t['edge_px_max'],'area':obj['area_relative_error']<=t['area_relative_max'],'axes':max(obj['axis_relative_errors'])<=t['axes_relative_max']}
         fail.extend(label+'.'+k for k,v in checks.items() if not v)
     if baseline:
-        for key,drop in [('cloth_iou',.01),('top_cloth_iou',.02)]:
+        for key,drop in [('cloth_iou',t.get('cloth_iou_degradation_max',.01)),('top_cloth_iou',t.get('top_cloth_iou_degradation_max',.02))]:
             if metrics['table'][key]<baseline['table'][key]-drop:fail.append('table.'+key+'.degraded')
-        if metrics['table']['false_background_on_real_cloth_fraction']>max(.01,baseline['table']['false_background_on_real_cloth_fraction']+.005):fail.append('table.false_background')
+        if metrics['table']['false_background_on_real_cloth_fraction']>max(t.get('false_background_max',.01),baseline['table']['false_background_on_real_cloth_fraction']+t.get('false_background_degradation_max',.005)):fail.append('table.false_background')
+    if 'cloth_iou_min' in t:
+        for key in ('cloth_iou','top_cloth_iou'):
+            if metrics['table'][key]<t[key+'_min']:fail.append('table.'+key+'.absolute')
+        if metrics['table']['false_background_on_real_cloth_fraction']>t['false_background_max']:fail.append('table.false_background.absolute')
     return dict(numeric_passed=not fail,initial_support_passed=geometry['physical_valid'],geometry_numeric_passed=not fail and geometry['physical_valid'],failures=fail+geometry['failures'])
 
 
@@ -67,6 +71,6 @@ def nondegrading(current, previous, config):
         if a['iou']<b['iou']-t['iou_degradation_max']:reasons.append(label+'.iou_degradation')
         if a['centroid_error_px']>b['centroid_error_px']+t['center_degradation_px']:reasons.append(label+'.center_degradation')
         if a['symmetric_edge_distance_px']>b['symmetric_edge_distance_px']+t['edge_degradation_px']:reasons.append(label+'.edge_degradation')
-    for key,drop in [('cloth_iou',.01),('top_cloth_iou',.02)]:
+    for key,drop in [('cloth_iou',t.get('cloth_iou_degradation_max',.01)),('top_cloth_iou',t.get('top_cloth_iou_degradation_max',.02))]:
         if current['table'][key]<previous['table'][key]-drop:reasons.append('table.'+key)
     return reasons
