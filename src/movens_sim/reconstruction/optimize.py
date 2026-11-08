@@ -36,6 +36,21 @@ class Evaluator:
     def checkpoint(self):write(self.run/'search_checkpoint.json',dict(best=self.best,attempts=self.attempts,improvements=self.improvements))
 
     def evaluate(self,params,tag,width=320,height=240):
+        progress=getattr(self,'progress',None)
+        if progress is None:return self._evaluate(params,tag,width,height)
+        def compute():
+            start=progress.data['metadata']['repair_render_start']
+            if self.budget.used('render_repair')-start>=progress.data['metadata']['render_cap']:
+                raise BudgetExceeded('Initial geometry original render allowance exhausted')
+            loss,metrics=self._evaluate(params,tag,width,height)
+            return dict(loss=loss,metrics=metrics,best=self.best,attempts=self.attempts,improvements=self.improvements,selected_params=self.scene.params.copy())
+        row,replayed=progress.call(dict(kind='render_objective',params=params,tag=tag,width=width,height=height),compute)
+        if replayed:
+            self.best=copy.deepcopy(row['best']);self.attempts=row['attempts'];self.improvements=row['improvements']
+            self.scene.apply(row['selected_params'],internal=True)
+        return row['loss'],row['metrics']
+
+    def _evaluate(self,params,tag,width=320,height=240):
         from .control import check_stop
         check_stop()
         self.attempts+=1;start=time.monotonic();old=self.scene.params.copy();key=self.best_key(width,height)
@@ -177,7 +192,7 @@ def projection_candidates(scene,observation,budget,config):
         starts=qmc.Sobol(len(ids),scramble=True,seed=config['fit']['seed']+(label=='plate')).random_base2(4)
         base=np.array([initial[k] for k in ids]);starts[0]=(base-lo)/span
         rows=[]
-        def residual(x):
+        def raw_residual(x):
             budget.reserve('projection_evaluations',detail=dict(object=label))
             vals=lo+x*span;p=dict(zip(ids,vals));rot=matrix_from_quat(scene.initial_poses[label]['quaternion_wxyz'])
             if len(vals)>3:rot=Rotation.from_rotvec(vals[3:],degrees=True).as_matrix()@rot
@@ -188,6 +203,11 @@ def projection_candidates(scene,observation,budget,config):
             pixels=np.c_[w/2+f*view[:,0]/depth,h/2-f*view[:,1]/depth]
             error=(polygon_features(pixels,w,h)-target)*[5,5,9,9,8]
             return np.r_[error,np.log(vals[2])*.005]
+        def residual(x):
+            progress=getattr(budget,'projection_progress',None)
+            if progress is None:return raw_residual(x)
+            value,_=progress.call(dict(kind='projection_residual',object=label,x=x.tolist()),lambda:raw_residual(x).tolist())
+            return np.asarray(value)
         object_projection_start=budget.used('projection_evaluations');object_projection_calls=0
         original_residual=residual
         def limited_residual(x):
@@ -210,21 +230,21 @@ def projection_candidates(scene,observation,budget,config):
     return seeds,provenance
 
 
-def fit_geometry(evaluator,ids=None,round_index=0,resume_event=None):
+def fit_geometry(evaluator,ids=None,round_index=0,resume_event=None,render_pool=None,render_cap=None):
     config=evaluator.config;fc=config['fit'];scene=evaluator.scene;budget=evaluator.budget
     if scene.stage!='geometry':raise SceneError('wrong_stage','fit_geometry')
-    evaluator.stage='geometry';evaluator.pool='render_initial' if round_index==0 else 'render_repair'
+    evaluator.stage='geometry';evaluator.pool=render_pool or ('render_initial' if round_index==0 else 'render_repair')
     ids=ids or ['apple.x','apple.y','apple.scale','apple.rx','apple.ry','apple.rz','plate.x','plate.y','plate.scale']
     round_event=resume_event or budget.reserve('geometry_rounds',detail=dict(round_index=round_index,parameter_ids=ids))
     for key in ids:
         if key not in {x['id'] for x in scene.registry() if 'geometry' in x['stages']}:raise SceneError('wrong_stage',key)
-    start_used=budget.summary()['used'].get(evaluator.pool,0);cap=600 if round_index==0 else fc['repair_round_caps'][min(round_index-1,2)]
+    start_used=budget.summary()['used'].get(evaluator.pool,0);cap=render_cap if render_cap is not None else (600 if round_index==0 else fc['repair_round_caps'][min(round_index-1,2)])
     result=dict(round_index=round_index,parameter_ids=ids,algorithm='Sobol projection seeds; multi-start normalized bounded Powell; joint XY/absolute scale/orientation; full-resolution refinement',substeps=[])
     try:
         if round_index==0:
             evaluator.evaluate(scene.params.copy(),'mount_baseline',640,480)
             evaluator.evaluate(scene.params.copy(),'initial_joint_baseline',320,240)
-            if (evaluator.run/'projection_seeds.json').exists():seeds=read(evaluator.run/'projection_seeds.json')['seeds']
+            if (evaluator.run/'projection_seeds.json').exists() and getattr(evaluator,'progress',None) is None:seeds=read(evaluator.run/'projection_seeds.json')['seeds']
             else:
                 seeds,provenance=projection_candidates(scene,evaluator.observation,budget,config);write(evaluator.run/'projection_seeds.json',dict(provenance=provenance,seeds=seeds))
             ranked=[]

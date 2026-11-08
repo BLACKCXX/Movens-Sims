@@ -97,9 +97,20 @@ def perturbation_checks(s):
     write(folder/'color_pipeline_probe.json',color_probe)
     if not color_probe['native_passthrough']:raise ValueError('Native RGB color-card transfer differs from source; investigate before fitting')
     for k,v in tests:
-        p={**base['params'],k:v};row=evaluate(s,p,tag='perturbation_'+k);out,_=images(s,row)
-        deltas={label:float(np.abs(out.astype(float)-rgb.astype(float))[mask].mean()) if mask.any() else 0. for label,mask in masks.items()}
-        save_rgb(folder/(k+'.png'),out);rows.append(dict(parameter=k,value=v,rgb_mae_by_region=deltas,render_changed=bool(np.any(out!=rgb))))
+        from .modes import initial_xml
+        if initial_xml(s.config) and abs(v-base['params'][k])<1e-12:
+            r=next(r for r in s.scene.registry() if r['id']==k)
+            v=r['lower']+.25*(r['upper']-r['lower'])
+        control=base['params'].copy();control_rgb=rgb;conditioning={}
+        if initial_xml(s.config) and k in ('apple.specular','plate.specular'):
+            # A narrow source highlight can be below uint8 resolution at this view.
+            # Compare specular alone under the SAME broad-lobe diagnostic control.
+            label=k.split('.')[0];control[label+'.shininess']=.005;conditioning={label+'.shininess':.005}
+            control_row=evaluate(s,control,tag='perturbation_control_'+k);control_rgb,_=images(s,control_row)
+            save_rgb(folder/(k+'.control.png'),control_rgb)
+        p={**control,k:v};row=evaluate(s,p,tag='perturbation_'+k);out,_=images(s,row)
+        deltas={label:float(np.abs(out.astype(float)-control_rgb.astype(float))[mask].mean()) if mask.any() else 0. for label,mask in masks.items()}
+        save_rgb(folder/(k+'.png'),out);rows.append(dict(parameter=k,value=v,source_value=base['params'][k],conditioning=conditioning,rgb_mae_by_region=deltas,render_changed=bool(np.any(out!=control_rgb))))
     report=dict(renderer='MuJoCo '+mujoco.__version__+' native OpenGL EGL',rows=rows,all_effective=all(r['render_changed'] for r in rows),source_texture_read='PIL RGB uint8; source PNG has no explicit color profile',render_read='native RGB uint8; cv2 BGR converted exactly once',texture_write='PNG RGB uint8, no extra gamma or per-object exposure',native_coefficients='Native Phong convention; no claimed calibrated linear radiometry',geometry_restored=s.scene.params==base['params'],checked_utc=now())
     write(folder/'report.json',report)
     if not report['all_effective']:raise ValueError('Ineffective new renderer control: '+json.dumps(rows))

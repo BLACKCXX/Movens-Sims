@@ -152,23 +152,31 @@ def _component(mask, seed):
     filled=out.astype(np.uint8);cv2.drawContours(filled,contours,-1,1,-1);return filled.astype(bool)
 
 
-def _pixels(rgb,robot_mask,seeds):
+def _pixels(rgb,robot_mask,seeds,allow_partial=False):
     """Auditable pixel thresholds; projected robot region is an uncertainty mask."""
     hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
-    apple=_component((((hsv[:,:,0]<38)|(hsv[:,:,0]>170))&(hsv[:,:,1]>95)&(hsv[:,:,2]>75)),seeds['apple'])
-    plate=_component((hsv[:,:,1]<55)&(hsv[:,:,2]>155),seeds['plate'])
-    cloth=largest((hsv[:,:,1]<75)&(hsv[:,:,2]<155))&~apple&~plate
+    errors={}
+    def component(label,fn):
+        try:return fn()
+        except ValueError as exc:
+            if not allow_partial:raise
+            errors[label]=str(exc);return np.zeros(rgb.shape[:2],bool)
+    apple=component('apple',lambda:_component((((hsv[:,:,0]<38)|(hsv[:,:,0]>170))&(hsv[:,:,1]>95)&(hsv[:,:,2]>75)),seeds['apple']))
+    plate=component('plate',lambda:_component((hsv[:,:,1]<55)&(hsv[:,:,2]>155),seeds['plate']))
+    cloth=component('cloth',lambda:largest((hsv[:,:,1]<75)&(hsv[:,:,2]<155)))&~apple&~plate
     occlusion=cv2.dilate(robot_mask.astype(np.uint8),np.ones((5,5),np.uint8)).astype(bool)
     valid=~occlusion
     masks=dict(apple=apple,plate=plate,cloth=cloth);quality={}
     for label in ('apple','plate'):
-        desc=describe(masks[label]);fraction=float(masks[label].mean());occ=float((masks[label]&occlusion).sum()/max(1,masks[label].sum()))
+        desc=describe(masks[label]) if masks[label].any() else dict(pixels=0,centroid_xy_px=None,bbox_xyxy_px=None,ellipse=None,visible_fraction_estimate=0.,border_cropped=False)
+        if label in errors:desc['failure_reason']=errors[label]
+        fraction=float(masks[label].mean());occ=float((masks[label]&occlusion).sum()/max(1,masks[label].sum()))
         desc.update(area_fraction=fraction,possible_robot_occlusion_fraction=occ,occluded_by_robot=occ>0.,confidence='automatic_unreviewed',quality_ok=.002<fraction<.35 and occ<.2)
         quality[label]=desc
     return masks,valid,occlusion,quality
 
 
-def prepare_full(entry, config, run):
+def prepare_full(entry, config, run, budget=None):
     run=Path(run);start=time.monotonic();ep=entry['episode'];init=config['initialization']
     run.mkdir(parents=True,exist_ok=True)
     if not entry['input_complete']:raise FileNotFoundError('; '.join(entry['missing']))
@@ -210,7 +218,7 @@ def prepare_full(entry, config, run):
     pelvis=full.body('pelvis').id;robotids={pelvis}
     for b in range(full.nbody):
         if int(full.body_parentid[b]) in robotids:robotids.add(b)
-    budget=BudgetManager(ROOT/'runs/_task_budgets'/(config['task_group_id']+'.sqlite'),f"{config['task_group_id']}/episode_{ep:06}",config['budget'])
+    budget=budget or BudgetManager(ROOT/'runs/_task_budgets'/(config['task_group_id']+'.sqlite'),f"{config['task_group_id']}/episode_{ep:06}",config['budget'])
     occfile=run/'masks/robot_mount_projection.png';occfile.parent.mkdir(exist_ok=True)
     if occfile.exists():robotmask=cv2.imread(str(occfile),0)>0
     else:
@@ -261,7 +269,7 @@ def prepare_full(entry, config, run):
     for label in ('apple','plate'):
         p=(pd.xpos[pm.body(label+'_root').id]-np.array(camera['xyz_m']))@rot
         seeds[label]=np.array([320+fy*p[0]/max(1e-6,-p[2]),240-fy*p[1]/max(1e-6,-p[2])])
-    masks,valid,occlusion,quality=_pixels(rgb,robotmask,seeds);budget.finish(projection)
+    masks,valid,occlusion,quality=_pixels(rgb,robotmask,seeds,allow_partial=init.get('source_mode')=='initial_xml');budget.finish(projection)
     np.savez_compressed(run/'masks/observations.npz',**masks,valid=valid,occlusion=occlusion)
     preview=rgb.copy()
     for label,color in [('apple',(255,80,0)),('plate',(0,255,120)),('cloth',(80,170,255))]:

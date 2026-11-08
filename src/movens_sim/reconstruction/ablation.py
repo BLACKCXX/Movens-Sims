@@ -13,7 +13,7 @@ from .budget import BudgetExceeded
 from .classified import execute
 from .control import check_stop
 from .metrics import gate
-from .modes import NO_TERRA,no_terra
+from .modes import NO_TERRA,no_terra,initial_xml
 from .session import ReconstructionSession
 from .v5 import initialize,initialize_checks,perturbation_checks,export_and_accept
 from .v5_metrics import objective
@@ -40,9 +40,24 @@ POLICY=dict(version='fixed_existing_groups_once_v1',appearance=[x[2] for x in AP
             final_render_reserve=dict(render_total=39,render_diagnostic=31,render_export=8))
 
 
+def guard_code_continuation(config,run):
+    """A new implementation must not reopen an in-flight local allowance."""
+    if not initial_xml(config):return
+    state=read(Path(run)/'session.json')
+    active=state.get('cold_start',{}).get('initial_geometry',{}).get('status')=='started'
+    active |= any(v.get('status') in ('search_started','selection_started') for v in state.get('ablation',{}).get('steps',{}).values())
+    if active or state.get('pending_candidate'):
+        raise ValueError('cold_inflight_code_change: resume this stage with its frozen implementation or perform an explicit same-ledger compatibility repair preserving its original remaining allowance; never start a fresh search signature/cap')
+
+
 def validate_config(c):
     if not no_terra(c) or c['allowed_episodes']!=[0,1,2] or c['budget']['terra_requests']!=0:
         raise ValueError('Only the authorized zero-model three-episode ablation')
+    mode=c.get('initialization',{}).get('source_mode','warm_start_v4')
+    if mode not in ('warm_start_v4','initial_xml'):raise ValueError('Unsupported initialization.source_mode')
+    if initial_xml(c):
+        if c['initialization']['mode']!='fk_h0' or 'warm_start_root' in c['initialization'] or 'reference_root' in c['ablation']:raise ValueError('Cold start must not depend on a historical warm start/reference')
+        if c['initial_geometry']['render_pool']!='render_repair' or c['initial_geometry']['render_cap']!=600:raise ValueError('Frozen initial geometry allocation changed')
     if c['ablation']['policy']!=POLICY or c['terra'].get('enabled') is not False:
         raise ValueError('Fixed policy/model prohibition changed')
 
@@ -54,6 +69,7 @@ def numeric_trigger(s,group):
     masks_ok=quality and all(int(row['metrics']['objects'][k]['target_visible_pixels'])>0 for k in ('apple','plate'))
     failures=sorted(g['failures']);eligible=False;reason='No relevant numeric failure'
     if group in ('table_coverage','camera_coverage'):
+        if initial_xml(s.config) and group=='table_coverage':masks_ok=bool((s.observation['target']['cloth'] & s.observation['valid']).any())
         eligible=masks_ok and any(x.startswith('table.') for x in failures)
         if group=='camera_coverage':
             table=s.state.get('ablation',{}).get('steps',{}).get('table_coverage',{})
@@ -134,6 +150,14 @@ def search_step(s,issue,objective_id,group):
         if not has_search_budget(s,group):
             steps[group]=dict(status='skipped',reason='Final acceptance reserve or existing pool exhausted');s.save();return s
         evidence='Fixed one-pass existing v5 appearance group; geometry/camera fixed'
+        if initial_xml(s.config) and group not in POLICY['geometry']:
+            quality=read(s.run/'mask_review.json')['objects']
+            relevant=('apple',) if group.startswith('apple') else ('plate',) if group=='plate_material' else ('apple','plate') if group in ('shared_lighting','plate_and_lighting') else ()
+            bad=[label for label in relevant if not quality[label]['quality_ok']]
+            required=(*relevant,'cloth') if group in ('cloth_color','shared_lighting','plate_and_lighting') else relevant
+            bad += [label for label in required if not (s.observation['target'][label] & s.observation['valid']).any() and label not in bad]
+            if bad:
+                steps[group]=dict(status='skipped',reason='Observation evidence insufficient for '+','.join(bad));s.save();return s
         if group in POLICY['geometry']:
             proof=numeric_trigger(s,group)
             if not proof['eligible']:
@@ -147,6 +171,7 @@ def search_step(s,issue,objective_id,group):
         s,response=execute(s,[dict(tool=tool,arguments=dict(issue_id=issue,objective_id=objective_id,
              parameter_group=group,render_cap=step['render_cap'],evidence=evidence))],f'Fixed ablation step {group}, once')
         payload=response['calls'][-1]['result'];step=s.state['ablation']['steps'][group]
+        if initial_xml(s.config) and not payload.get('ok'):raise RuntimeError('Cold-start MCP search failed: '+str(payload.get('error')))
         step['result']=payload.get('result',dict(execution_status='error',error=payload.get('error')));s.save()
     step=s.state['ablation']['steps'][group]
     # A completed child result or staged candidate may survive a parent stop.
@@ -155,7 +180,15 @@ def search_step(s,issue,objective_id,group):
         found=next((r for r in s.state.get('search_history',[]) if r['operation_id']==step['operation_id'] and r['parameter_group']==group),None)
         if found:step['result']=found
         elif not pending:
-            step.update(status='interrupted',reason='No complete tool result; preserve charged work, do not replay local search');s.save();return s
+            if initial_xml(s.config):
+                tool='optimize_issue' if group in POLICY['geometry'] else 'fit_appearance'
+                s,response=execute(s,[dict(tool=tool,arguments=dict(issue_id=issue,objective_id=objective_id,parameter_group=group,render_cap=step['render_cap'],evidence=step['evidence']))],'Resume original numerical prefix with its original remaining allowance')
+                payload=response['calls'][-1]['result']
+                if not payload.get('ok'):raise RuntimeError('Resumed cold-start MCP search failed: '+str(payload.get('error')))
+                step=s.state['ablation']['steps'][group];step['result']=payload['result'];s.save()
+            else:
+                step.update(status='interrupted',reason='No complete tool result; preserve charged work, do not replay local search');s.save();return s
+    pending=s.state.get('pending_candidate')
     if pending and pending['operation_id']==step['operation_id']:
         decision,evidence=selection_rule(s,pending,objective_id)
         step.update(status='selection_started',decision=decision);s.save()
@@ -191,7 +224,7 @@ def report(s):
     run=s.run;a=read(run/'final_acceptance/acceptance.json');budget=s.budget.summary()
     if budget['used'].get('terra_requests',0)!=0 or (run/'terra').exists():raise ValueError('Ablation model-use isolation violated')
     calls=[json.loads(x) for x in (run/'mcp_tool_calls.jsonl').read_text().splitlines()]
-    optim=[x for x in calls if x['tool'] in ('optimize_issue','fit_appearance')]
+    optim=[x for x in calls if x['tool'] in ('optimize_issue','fit_appearance','fit_geometry')]
     stats=dict(mcp=len(calls),diagnostic=sum(x['tool']=='diagnose_issue' for x in calls),optimization=len(optim),
          new_candidates=sum((x.get('retest') or {}).get('new_candidates',0) for x in optim),
          retained_changes=sum(d['candidate_retained'] for d in s.state.get('candidate_decisions',[])),
@@ -212,7 +245,11 @@ def report(s):
     write(run/'result.json',result);write(run/'budget_ledger.json',budget);write(run/'execution_stats.json',stats)
     write(run/'api_usage.json',dict(actual_attempts=0,reserved=0,model_review_status='not_run_ablation',cached_model_response_used=False,offline_fake_review_used=False,transport_guard='explicit before cache/credentials/client'))
     write(run/'model_review_status.json',dict(status='not_run_ablation',actual_http_requests=0,judgment=None))
-    from .ablation_delivery import episode_report
+    if initial_xml(s.config):
+        result.update(initialization_passed=read(run/'initial_xml_verification.json')['passed'],source_mode='initial_xml',initial_geometry=s.state.get('cold_start',{}).get('initial_geometry'))
+        write(run/'result.json',result)
+        from .cold_delivery import episode_report
+    else:from .ablation_delivery import episode_report
     episode_report(run,s.config)
     return result
 
@@ -223,18 +260,25 @@ def run_pipeline(entry,config,enabled=False,resume=False,dry_run=False,command='
     if entry['episode'] not in (0,1,2):raise ValueError('Only episodes 0,1,2')
     run=ROOT/config['run_root']/f"episode_{entry['episode']:06}"
     if dry_run:return dict(episode=entry['episode'],workflow=NO_TERRA,api_will_be_called=False,run=str(run),budget=config['budget'])
+    if initial_xml(config):
+        from .cold_delivery import prepare as prepare_definition
+        prepare_definition(config)
     run.mkdir(parents=True,exist_ok=True)
     with (run/'.workflow.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if (run/'resolved_config.json').exists() and read(run/'resolved_config.json')!=config:raise ValueError('Frozen ablation configuration changed')
         write(run/'resolved_config.json',config)
         if not (run/'execution_started.json').exists():write(run/'execution_started.json',dict(utc=now()))
-        if not (run/'source_manifest.json').exists():initialize(entry,config,run)
+        if initial_xml(config):
+            from .initial_xml import initialize as initialize_original
+            initialize_original(entry,config,run)
+        elif not (run/'source_manifest.json').exists():initialize(entry,config,run)
         verify_sources(run);ident=identity(run,config)
         if (run/'run_identity.json').exists() and read(run/'run_identity.json')!=ident:
             old=read(run/'run_identity.json')
             if read(run/'session.json').get('complete'):raise ValueError('Completed ablation files cannot be relabeled')
             if any(old[k]!=ident[k] for k in ('config_sha256','source_manifest_sha256','observation_sha256','mujoco')):raise ValueError('Frozen inputs/configuration changed')
+            guard_code_continuation(config,run)
             append(run/'code_continuations.jsonl',dict(previous=old,current=ident,budget_reset=False,utc=now()))
         write(run/'run_identity.json',ident)
         code=run/'code_versions'/digest(ident['code'])[:16]
@@ -248,9 +292,17 @@ def run_pipeline(entry,config,enabled=False,resume=False,dry_run=False,command='
                 for name,h in read(run/'delivery_binding.json')['artifacts'].items():
                     if sha(run/name)!=h:raise ValueError('Frozen final artifact changed: '+name)
                 return read(run/'result.json')
-            initialize_checks(s);verify_common_initial(s);perturbation_checks(s)
+            if initial_xml(config):
+                from .initial_xml import initialize_checks as check_original
+                check_original(s)
+            else:initialize_checks(s);verify_common_initial(s)
+            perturbation_checks(s)
             if command=='prepare':return dict(episode=entry['episode'],prepared=True,terra_requests=0)
-            if not (run/'delivery_binding.json').exists():s=run_fixed_pass(s)
+            if not (run/'delivery_binding.json').exists():
+                if initial_xml(config):
+                    from .cold_geometry import run_initial_geometry
+                    s=run_initial_geometry(s)
+                s=run_fixed_pass(s)
             export_and_accept(s)
             s.scene.stage='frozen';s.state['complete']=True;s.save()
             return report(s)

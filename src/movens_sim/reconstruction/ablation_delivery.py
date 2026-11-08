@@ -30,6 +30,10 @@ def csv_write(path,rows):
 
 
 def prepare(c):
+    from .modes import initial_xml
+    if initial_xml(c):
+        from .cold_delivery import prepare as prepare_original
+        return prepare_original(c)
     validate_config(c);start=time.monotonic();root=ROOT/c['run_root'];root.mkdir(parents=True,exist_ok=True)
     a=ROOT/c['ablation']['reference_root'];base=read(a/'resolved_config.json');limits=[]
     for key,v in base['budget'].items():
@@ -58,10 +62,10 @@ def prepare(c):
     if changed:raise ValueError('Protected baseline changed: '+str(changed[:5]))
     original=subprocess.check_output(['git','show','HEAD:src/movens_sim/reconstruction/v5_tools.py'],cwd=ROOT,text=True)
     current=(CODE_ROOT/'src/movens_sim/reconstruction/v5_tools.py').read_text()
-    kernel=lambda x:x[x.index('    ids=GROUPS[parameter_group]'):x.index('    operation_id=f\'op_')]
+    kernel=lambda x:(x[x.index('    ids=GROUPS[parameter_group]'):x.index('    signature=digest(dict(candidate=')]+x[x.index("            if parameter_group=='camera_coverage':"):x.index('    except (StopIteration,BudgetExceeded) as exc:')])
     if kernel(original)!=kernel(current):raise ValueError('A numerical search kernel was modified')
     receipt=dict(base_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
-         search_kernel_unchanged=True,search_kernel_sha256=digest(kernel(current)),
+         search_kernel_unchanged=True,search_kernel_sha256=digest(kernel(current)),kernel_comparison_scope='Existing parameter normalization, exact grouped seeds/camera hypotheses and Powell options; optional cold-start objective journaling is outside the numerical-kernel comparison',
          powell=dict(maxiter=8,xtol=.003,ftol=1e-4,maxfev='remaining local cap after the SAME grouped seeds'),
          projection_refit=dict(max_nfev=45,diff_step=.002,ftol=1e-7,xtol=1e-7,gtol=1e-7),
          unchanged_modules={name:sha(CODE_ROOT/'src/movens_sim'/name) for name in ('render.py','reconstruction/v5_material.py','reconstruction/v5_metrics.py','reconstruction/optimize.py','reconstruction/diagnostics.py','reconstruction/acceptance.py')},
@@ -158,6 +162,10 @@ def plots(run,aa,bb):
 
 
 def build(c,package=False):
+    from .modes import initial_xml
+    if initial_xml(c):
+        from .cold_delivery import build as build_original
+        return build_original(c,package)
     root=ROOT/c['run_root'];aroot=ROOT/c['ablation']['reference_root'];ac=read(aroot/'resolved_config.json');rows=[];details=[];audits=[];supp_start=time.monotonic()
     if not all((root/f'episode_{ep:06}/result.json').exists() for ep in (0,1,2)):raise ValueError('All three new B results are required before A/B comparison')
     for ep in (0,1,2):

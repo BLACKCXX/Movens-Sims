@@ -16,7 +16,7 @@ from .budget import BudgetExceeded
 from .metrics import measure,gate
 from .review_state import dependencies
 from .v5_metrics import OBJECTIVES,objective,POLICY
-from .modes import no_terra
+from .modes import no_terra,initial_xml
 from ..util import append,read,write,digest,sha,save_rgb,now,CODE_ROOT
 
 GROUPS={
@@ -55,7 +55,7 @@ def capabilities(s):
     if b.remaining('render_repair')<1 or b.remaining('optimization_seconds')<=1200:
         groups={k:v for k,v in groups.items() if k not in ('table_coverage','camera_coverage','object_layout','plate_pose','plate_profile','support_initialization')}
     mutable=s.scene.stage not in ('frozen','final_readonly')
-    return dict(version='v5.1',tools=list(TOOLS if mutable else ('inspect_scene','diagnose_issue')),
+    return dict(version='v5.1',tools=list(((*TOOLS,'fit_geometry') if initial_xml(s.config) else TOOLS) if mutable else ('inspect_scene','diagnose_issue')),
         parameter_groups=groups,objectives=list(OBJECTIVES),issues={k:dict(category=v[0],region=v[1],blocking=v[2]) for k,v in ISSUES.items()},
         registry=s.scene.registry(),pending_candidate=s.state.get('pending_candidate'),
         duplicate_searches=s.state.get('search_signatures',[]),policy=POLICY,
@@ -225,16 +225,34 @@ def optimize_issue(s,issue_id,objective_id,parameter_group,render_cap,candidate_
     s.scene.stage=stage;s.scene.plate_tilt_enabled=True;s.save()
     before=counters(s.budget);base=evaluate(s,pool=pool,tag='search_control');best=base;before_score=objective(base['metrics'],objective_id,s.config);best_score=before_score
     evaluations=[];seen=set();new_seen=set();cache_hits=0;stop='local_cap';start=time.monotonic();cap=min(render_cap,int(s.budget.remaining(pool)));evaluated=0;bad=[];search_seconds=max(.01,s.budget.remaining('optimization_seconds')-1200)
+    progress=None
+    if initial_xml(s.config):
+        from .search_replay import SearchReplay
+        progress=SearchReplay(s.run/'search_progress'/(signature+'.json'),signature,dict(cap=cap,before=before))
+        cap=progress.data['metadata']['cap'];before=progress.data['metadata']['before']
+    recorded=set()
+    if progress and (s.run/'candidates_v5.jsonl').exists():
+        recorded={x.get('evaluation_id') for x in (json.loads(line) for line in (s.run/'candidates_v5.jsonl').read_text().splitlines())}
+
     def trial(params,camera=None,tag='search'):
         nonlocal best,best_score,cache_hits,evaluated
         if evaluated>=cap or time.monotonic()-start>=search_seconds:raise StopIteration
         evaluated+=1
         try:
-            row=evaluate(s,params,camera,pool,tag);score=objective(row['metrics'],objective_id,s.config);guard=guard_failures(s,row,base)
+            replayed=False
+            if progress:
+                row,replayed=progress.call(dict(params=params,camera=camera or base['camera'],tag=tag),lambda:evaluate(s,params,camera,pool,tag))
+            else:row=evaluate(s,params,camera,pool,tag)
+            score=objective(row['metrics'],objective_id,s.config);guard=guard_failures(s,row,base)
             cache_hits+=int(row['cache_hit']);seen.add(row['candidate_id'])
             if not row['cache_hit']:new_seen.add(row['candidate_id'])
             record=dict(candidate_id=row['candidate_id'],cache_key=row['cache_key'],params=params,camera=row['camera'],objective_id=objective_id,objective=float(score),guard_failures=guard,metrics=row['metrics'],cache_hit=row['cache_hit'])
-            evaluations.append(record);append(s.run/'candidates_v5.jsonl',record)
+            evaluations.append(record)
+            if progress:
+                record['evaluation_id']=signature+':'+str(evaluated)
+                if record['evaluation_id'] not in recorded:
+                    append(s.run/'candidates_v5.jsonl',record);recorded.add(record['evaluation_id'])
+            else:append(s.run/'candidates_v5.jsonl',record)
             if not guard and score<best_score-s.config['acceptance']['minimum_objective_improvement']:
                 best=row;best_score=score
             return score+len(guard)*10
@@ -296,6 +314,7 @@ def optimize_issue(s,issue_id,objective_id,parameter_group,render_cap,candidate_
         rest,_=native_rest(s)
         if not rest['physics_passed']:improved=False;stop='Candidate failed fixed one-second physics; rolled back'
         s.scene.locked_camera=base['camera'];s.scene.apply(base['params'],internal=True)
+    if progress:progress.flush(force=True)
     operation_id=f'op_{len(s.state.get("search_history",[])):04d}'
     report=dict(execution_status='completed' if improved else ('budget_exhausted' if s.budget.remaining(pool)<1 else 'no_improvement'),operation_id=operation_id,issue_id=issue_id,objective_id=objective_id,parameter_group=parameter_group,bounds=ranges,evidence=evidence,confidence=confidence,
         before_candidate_id=base['candidate_id'],candidate_id=best['candidate_id'] if improved else base['candidate_id'],new_candidates=len(new_seen-{base['candidate_id']}),unique_candidates_evaluated=len(seen),candidate_evaluations=evaluated,new_render_evaluations=int(s.budget.used('render_total')-before['render_total']),cache_hits=cache_hits,
@@ -333,6 +352,9 @@ def make_server(s):
                 from .control import check_stop
                 check_stop()
                 if name=='inspect_scene':value=s.inspect_scene()
+                elif name=='fit_geometry':
+                    from .cold_geometry import fit_initial_geometry
+                    value=fit_initial_geometry(s,**kw)
                 elif name=='fit_appearance':
                     if group_stage(kw['parameter_group'])!='appearance':raise SceneError('wrong_stage','fit_appearance cannot edit geometry')
                     value=globals()['optimize_issue'](s,**kw)
@@ -349,11 +371,14 @@ def make_server(s):
     def fit_appearance(issue_id:str,objective_id:str,parameter_group:str,render_cap:int,candidate_id:str,bounds:list[dict]|None=None,evidence:str='',confidence:float=0.)->dict:
         return invoke('fit_appearance',issue_id=issue_id,objective_id=objective_id,parameter_group=parameter_group,render_cap=render_cap,candidate_id=candidate_id,bounds=bounds,evidence=evidence,confidence=confidence)
     def select_candidate(issue_id:str,decision:str,candidate_id:str,evidence:str='')->dict:return invoke('select_candidate',issue_id=issue_id,decision=decision,candidate_id=candidate_id,evidence=evidence)
+    def fit_geometry(candidate_id:str)->dict:return invoke('fit_geometry',candidate_id=candidate_id)
     funcs=[inspect_scene,diagnose_issue]
-    if s.scene.stage not in ('frozen','final_readonly'):funcs += [optimize_issue,fit_appearance,select_candidate]
+    if s.scene.stage not in ('frozen','final_readonly'):
+        funcs += [optimize_issue,fit_appearance,select_candidate]
+        if initial_xml(s.config):funcs.append(fit_geometry)
     tools=[]
     for fn in funcs:
-        tool=Tool.from_function(fn);tool.description={'inspect_scene':'Inspect shared state, executable contracts and cumulative budget','diagnose_issue':'Actual current-image, neutral/specular-off/normal or native-soft-layer diagnostics','optimize_issue':'Metered registered-objective search; stages a candidate, requires Terra comparison and select_candidate','fit_appearance':'Effective grouped appearance search; geometry/camera fixed; reports no_improvement/budget_exhausted explicitly','select_candidate':'Keep or roll back the staged candidate after comparing all metrics/images; never refunds budget'}[fn.__name__]
+        tool=Tool.from_function(fn);tool.description={'fit_geometry':'Existing original-XML initial projection/coarse/local/full-resolution XY and scale fit; repair pool, stages candidate for select_candidate','inspect_scene':'Inspect shared state, executable contracts and cumulative budget','diagnose_issue':'Actual current-image, neutral/specular-off/normal or native-soft-layer diagnostics','optimize_issue':'Metered registered-objective search; stages a candidate, requires Terra comparison and select_candidate','fit_appearance':'Effective grouped appearance search; geometry/camera fixed; reports no_improvement/budget_exhausted explicitly','select_candidate':'Keep or roll back the staged candidate after comparing all metrics/images; never refunds budget'}[fn.__name__]
         tool.parameters['additionalProperties']=False;p=tool.parameters['properties']
         for key,values in [('issue_id',list(ISSUES)),('objective_id',list(OBJECTIVES)),('parameter_group',list(GROUPS)),('decision',['keep','rollback']),('diagnostic',['automatic','plate_views','native_rest'])]:
             if key in p:p[key]['enum']=values

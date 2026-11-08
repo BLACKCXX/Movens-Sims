@@ -19,6 +19,8 @@ from .metrics import nondegrading
 
 class ReconstructionSession:
     def __init__(self,run,config):
+        from .modes import install_initial_xml_guard
+        install_initial_xml_guard(config)
         self.run=Path(run);self.config=config
         self.validate_inputs()
         task=config['task_group_id']

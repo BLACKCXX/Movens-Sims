@@ -132,6 +132,8 @@ class SceneBackend:
         if self.classified:
             contract_files=[Path(__file__).parent/name for name in ('backend.py','environment.py','appearance.py')]
             if self.v5:contract_files += [Path(__file__).parent/'v5_material.py',Path(__file__).parent/'v5_metrics.py',Path(__file__).parent.parent/'render.py']
+            from .modes import initial_xml
+            if initial_xml(self.config):contract_files += [Path(__file__).parent/name for name in ('initial_xml.py','cold_geometry.py','search_replay.py')]
             self.render_contract=digest({p.name:sha(p) for p in contract_files})
             self.source_hash=digest(dict(source=self.source_hash,render_contract=self.render_contract))
         self.render_passes=0;self.initial_poses={};self.locked_camera=camera
