@@ -120,7 +120,7 @@ class SupportSurface:
 
 class SceneBackend:
     def __init__(self, static_xml, physics_xml=None, physics_state=None, initial=None, camera=None, support_top_only=False, initialize_supported=False, config=None):
-        self.config=config or {};self.v5=self.config.get('workflow')=='terra_closed_loop_v5';self.classified=self.config.get('workflow') in ('classified_reconstruction_v4','terra_closed_loop_v5')
+        self.config=config or {};self.v5=self.config.get('workflow') in ('terra_closed_loop_v5','ablation_no_terra_v5');self.classified=self.config.get('workflow') in ('classified_reconstruction_v4','terra_closed_loop_v5','ablation_no_terra_v5')
         self.support_limits=self.config.get('initial_support',dict(gap_min_m=-.001,gap_max_m=.002,pair_penetration_m_max=.001))
         self.path=Path(static_xml);self.physics_path=Path(physics_xml) if physics_xml else None
         self.physics_state=Path(physics_state) if physics_state else None

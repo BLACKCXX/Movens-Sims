@@ -58,6 +58,8 @@ def request_bundle(scene,run,config,stage,round_index,budget,previous=None):
     return folder,body,schema
 
 def call_or_prepare(scene,run,config,stage,round_index,budget,enabled=False,previous=None):
+    from .reconstruction.modes import assert_model_allowed
+    assert_model_allowed(config)
     folder,body,schema=request_bundle(scene,run,config,stage,round_index,budget,previous)
     key=credentials(config['gpt']);result=dict(round_index=round_index,stage=stage,model=config['gpt']['model'],enabled=enabled,credential_present=bool(key),request_sha256=digest(body),status='prepared_offline',api_call_performed=False)
     if enabled and key and (folder/'call_status.json').exists() and (folder/'parsed.json').exists():

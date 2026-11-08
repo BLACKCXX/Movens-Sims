@@ -1,0 +1,271 @@
+{
+  "workflow": "ablation_no_terra_v5",
+  "version": "ep012_ablation_no_terra_v1",
+  "task_group_id": "ep012_ablation_no_terra_20261108",
+  "allowed_episodes": [
+    0,
+    1,
+    2
+  ],
+  "manifest": "configs/ep012_ablation_no_terra_manifest.json",
+  "run_root": "runs/ep012_ablation_no_terra_20261108",
+  "mount_source_root": "runs/head_camera_pilot_v1",
+  "legacy_comparison_root": "runs/batch_v1",
+  "camera_init_mode": "robot_mount_prior",
+  "camera": {
+    "selection_variant": "batch_final",
+    "selection_policy": "Read actual historical selection, recompute FK, verify final camera including runtime parameters",
+    "fixed": false,
+    "conditional_revision": {
+      "translation_norm_max_m": 0.02,
+      "rotation_norm_max_deg": 5.0,
+      "fov_fixed": false,
+      "table_fixed": true,
+      "shared_centroid_cosine_min": 0.8,
+      "minimum_shared_center_error_px": 3.0,
+      "fovy_delta_max_deg": 2.0
+    },
+    "allow_revision": true
+  },
+  "budget": {
+    "terra_requests": 0,
+    "geometry_rounds": 100,
+    "render_total": 4500,
+    "render_initial": 100,
+    "render_repair": 900,
+    "render_appearance": 2400,
+    "projection_evaluations": 10000,
+    "optimization_seconds": 7200,
+    "render_diagnostic": 600,
+    "render_export": 500
+  },
+  "fit": {
+    "seed": 20261107,
+    "projection_starts": 32,
+    "projection_max_per_start": 45,
+    "coarse_render_candidates": 40,
+    "local_start_count": 3,
+    "initial_render_subbudgets": [
+      90,
+      350,
+      160
+    ],
+    "repair_round_caps": [
+      180,
+      140,
+      140
+    ],
+    "plate_tilt_initially_enabled": false,
+    "shape_initially_enabled": false,
+    "local_no_improvement_evaluations": 40,
+    "width": 320,
+    "height": 240,
+    "final_width": 640,
+    "final_height": 480,
+    "prefer_upright": true
+  },
+  "acceptance": {
+    "iou_min": 0.88,
+    "center_px_max": 3.6,
+    "edge_px_max": 3.6,
+    "area_relative_max": 0.06,
+    "axes_relative_max": 0.06,
+    "support_gap_m_max": 0.0024,
+    "penetration_m_max": 0.0012,
+    "minimum_objective_improvement": 0.0001,
+    "iou_degradation_max": 0.012,
+    "center_degradation_px": 1.2,
+    "edge_degradation_px": 0.6,
+    "translation_m_max": 0.01,
+    "rotation_deg_max": 10.0,
+    "threshold_basis": "User-authorized ep012 v4: quality error tolerances x1.2; independent terminal rest tolerances x2; engineering integrity unchanged. Absolute coverage gates restored from head-camera pilot.",
+    "cloth_iou_min": 0.964,
+    "top_cloth_iou_min": 0.88,
+    "false_background_max": 0.012,
+    "cloth_iou_degradation_max": 0.012,
+    "top_cloth_iou_degradation_max": 0.024,
+    "false_background_degradation_max": 0.006
+  },
+  "evaluator": {
+    "version": "balanced_geometry_v3_plus_fixed_real_regions_v5.1",
+    "top_fraction": 0.2,
+    "weights": {
+      "object_iou": 1.0,
+      "edge": 0.6,
+      "centroid": 0.5,
+      "area": 0.2,
+      "cloth": 0.3,
+      "top": 0.3,
+      "boundary": 0.2
+    }
+  },
+  "terra": {
+    "model": "gpt-6.1-terra",
+    "base_url": "https://api.openai.com/v1",
+    "env_file": "/root/autodl-tmp/api.env",
+    "max_retries": 0,
+    "timeout_seconds": 90,
+    "max_output_tokens": 6500,
+    "prompt_version": "v5_system",
+    "templates": {
+      "system": "v5_system.txt",
+      "classification": "v5_classification.txt",
+      "repair": "v5_repair.txt",
+      "comparison": "v5_comparison.txt",
+      "final": "v5_final.txt"
+    },
+    "enabled": false
+  },
+  "appearance": {
+    "subsets": [
+      [
+        "light.ambient",
+        "light.diffuse"
+      ],
+      [
+        "apple.tint_r",
+        "apple.tint_g",
+        "apple.tint_b",
+        "apple.yellow_mix",
+        "plate.albedo"
+      ],
+      [
+        "material.specular",
+        "material.shininess"
+      ],
+      [
+        "cloth.gray"
+      ]
+    ],
+    "render_subbudgets": [
+      100,
+      220,
+      100,
+      80
+    ]
+  },
+  "render": {
+    "width": 640,
+    "height": 480,
+    "duration_s": 5,
+    "fps": 30,
+    "crop": "none",
+    "shadows": false
+  },
+  "diagnostic": {
+    "duration_s": 1,
+    "fps": 30,
+    "initial_velocities": "preserve_saved",
+    "free_objects": [
+      "apple",
+      "plate"
+    ]
+  },
+  "compatibility": "Explicit isolated no-model ablation of existing v5 tools and v4 warm start; no search/material/metric expansion",
+  "source_project": "/root/autodl-tmp/Movens-Interact",
+  "initialization": {
+    "mode": "fk_h0",
+    "revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+    "training_index": "data/appletoplate_tableup005mm_training_v1/index.json",
+    "training_formal_config": "outputs/apple_fixed_hand_wrist_ft50000_20261106T093125Z/formal/config.json",
+    "data_root": "data/full402_h0_v1",
+    "mount_evidence_root": "runs/head_camera_pilot_v1/episode_000000/inputs",
+    "mount_profile": "oak_document_approximation",
+    "fovy_deg": 42.0,
+    "cloth_gray": 0.18747670784988643,
+    "initial_clearance_m": 5e-05,
+    "extra_apple_offset_m": 0.0,
+    "soft_top_minus_h0_m": 0.0,
+    "rigid_top_minus_h0_m": -0.006,
+    "warm_start_root": "runs/ep012_reconstruction_v4_20261107"
+  },
+  "batch": {
+    "enabled": true,
+    "expected_episodes": 3,
+    "initial_workers": 2,
+    "max_workers": 2,
+    "threads_per_worker": 1,
+    "gpu_ids": [
+      0,
+      1
+    ],
+    "api_concurrency": 1,
+    "control_root": "/root/autodl-tmp/Movens-Sim/runs/ep012_ablation_no_terra_20261108/control",
+    "engineering_retries": 5,
+    "heartbeat_seconds": 10,
+    "reserve_disk_gb": 100,
+    "scale_up_after_completed": 99,
+    "scale_up_available_memory_gib": 48,
+    "scale_up_cpu_cores_max": 24,
+    "scale_up_gpu_free_mib": 8192,
+    "worker_timeout_seconds": 18000,
+    "ep0_first": true
+  },
+  "parent_manifest": "configs/full402_h0_manifest_v1.json",
+  "initial_support": {
+    "gap_min_m": -0.0012,
+    "gap_max_m": 0.0024,
+    "pair_penetration_m_max": 0.0012
+  },
+  "rest_acceptance": {
+    "translation_m_max": 0.01,
+    "rotation_deg_max": 10.0,
+    "penetration_m_max": 0.002,
+    "basis": "terminal",
+    "duration_s": 1.0
+  },
+  "classification": {
+    "categories": [
+      "observation",
+      "geometry",
+      "initial_support",
+      "appearance",
+      "rest"
+    ],
+    "minimum_slots_per_category": 2,
+    "maximum_passes": 20,
+    "final_readonly_slots": 1,
+    "initial_tool_render_cap": 360,
+    "repair_tool_render_cap": 180
+  },
+  "config_path": "configs/ep012_ablation_no_terra.json",
+  "v5": {
+    "final_compute_reserve_seconds": 1200,
+    "local_search_cap": 128,
+    "max_local_search_cap": 256,
+    "cloth_optional_render_cap": 80,
+    "policy": "cloth_optional_details_v5",
+    "tradeoff_policy": "predeclared_joint_objective_and_explicit_comparison",
+    "minimum_improvement": 0.0001
+  },
+  "ablation": {
+    "reference_root": "runs/ep012_reconstruction_v5_20261108",
+    "policy": {
+      "version": "fixed_existing_groups_once_v1",
+      "appearance": [
+        "apple_color",
+        "apple_red",
+        "apple_yellow",
+        "apple_highlight",
+        "plate_material",
+        "shared_lighting",
+        "plate_and_lighting",
+        "cloth_color"
+      ],
+      "geometry": [
+        "table_coverage",
+        "camera_coverage",
+        "object_layout",
+        "support_initialization"
+      ],
+      "passes": 1,
+      "cloth_optional": false,
+      "selection": "existing_objective_minimum_improvement_and_v5_guard_failures",
+      "final_render_reserve": {
+        "render_total": 39,
+        "render_diagnostic": 31,
+        "render_export": 8
+      }
+    }
+  }
+}

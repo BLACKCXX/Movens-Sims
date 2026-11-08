@@ -101,6 +101,8 @@ class BudgetManager:
         return ids
 
     def reserve_terra(self, final=False, detail=None):
+        if self.limits['terra_requests']==0:
+            raise BudgetExceeded('Model requests explicitly forbidden for this task')
         # One request always remains available for the terminal read-only review.
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')

@@ -50,7 +50,7 @@ def setup(config):
     for record in read(m['assets_manifest']).values():
         asset=Path(record['path'])
         if sha(asset)!=record['sha256']:raise ValueError('Shared input asset changed: '+str(asset))
-        if config.get('workflow') not in ('classified_reconstruction_v4','terra_closed_loop_v5'):asset.chmod(0o444)
+        if config.get('workflow') not in ('classified_reconstruction_v4','terra_closed_loop_v5','ablation_no_terra_v5'):asset.chmod(0o444)
     target=root/'resolved_config.json'
     if target.exists() and read(target)!=config:raise ValueError('Batch config changed; resume cannot relabel prior work or budgets')
     write(target,config)
@@ -60,8 +60,10 @@ def setup(config):
         for folder in ('src','prompts','configs'):
             shutil.copytree(CODE_ROOT/folder,frozen/folder,ignore=shutil.ignore_patterns('__pycache__'))
         (frozen/'scripts').mkdir();shutil.copy2(CODE_ROOT/'scripts/movens-sim',frozen/'scripts/movens-sim');shutil.copy2(CODE_ROOT/'pyproject.toml',frozen/'pyproject.toml')
-        if config.get('workflow')=='terra_closed_loop_v5':
+        if config.get('workflow') in ('terra_closed_loop_v5','ablation_no_terra_v5'):
             for p in (CODE_ROOT/'scripts').glob('*v5*.py'):shutil.copy2(p,frozen/'scripts'/p.name)
+        if config.get('workflow')=='ablation_no_terra_v5':
+            for p in (CODE_ROOT/'scripts').glob('*ablation*.py'):shutil.copy2(p,frozen/'scripts'/p.name)
         write(root/'code_ready.json',{str(p.relative_to(frozen)):sha(p) for p in frozen.rglob('*') if p.is_file()})
     verify_code(root)
     with connect(root) as db:
@@ -79,7 +81,7 @@ def setup(config):
                     if not (run/name).is_file():bad.append(name)
             except (OSError,ValueError,KeyError):bad.append('delivery_binding.json')
             if bad:db.execute("UPDATE tasks SET status='failed',stage='delivery_integrity',reason=?,quality=NULL WHERE episode=?",('Incomplete completed delivery: '+','.join(bad),row['episode']))
-    write(root/'handoff.json',dict(root=str(root),config=str(target),manifest=str(ROOT/config['manifest']),model=config['terra']['model'],initial_workers=config['batch']['initial_workers'],max_workers=config['batch']['max_workers'],
+    write(root/'handoff.json',dict(root=str(root),config=str(target),manifest=str(ROOT/config['manifest']),model=None if config.get('workflow')=='ablation_no_terra_v5' else config['terra']['model'],initial_workers=config['batch']['initial_workers'],max_workers=config['batch']['max_workers'],
         commands={a:f"cd {ROOT} && .venv/bin/python -B scripts/run_full_reconstruction.py {a} --config {config.get('config_path','configs/full402_h0_v1.json')}" for a in ('status','stop','resume')},
         scope='Static scene reconstruction only; no training, slicing or checkpoint tests',source_project_read_only=True))
     return root,m
@@ -110,6 +112,8 @@ def worker(config,ep,attempt):
         from .reconstruction.classified import run_pipeline
     if config.get('workflow')=='terra_closed_loop_v5':
         from .reconstruction.v5 import run_pipeline
+    if config.get('workflow')=='ablation_no_terra_v5':
+        from .reconstruction.ablation import run_pipeline
     from .reconstruction.control import BatchPaused
     root=ROOT/config['run_root'];run=root/f'episode_{ep:06}';receipt=_receipt(root,ep,attempt);start=time.monotonic()
     entry=next(e for e in read(ROOT/config['manifest'])['entries'] if e['episode']==ep)
@@ -117,7 +121,7 @@ def worker(config,ep,attempt):
     try:
         cv=__import__('cv2');cv.setNumThreads(1)
         approve_rolling_code(root,run,config)
-        data=run_pipeline(entry,config,enabled=True,resume=True)
+        data=run_pipeline(entry,config,enabled=config.get('workflow')!='ablation_no_terra_v5',resume=True)
         checks={}
         for name,frames in [('ego_static.mp4',150),('settle_diagnostic.mp4',30)]:
             info=video_info(run/name);checks[name]=info
@@ -187,9 +191,13 @@ def publish(root,config,phase='running',resource=None):
     buf=io.StringIO();w=csv.DictWriter(buf,fieldnames=list(csvrows[0]));w.writeheader();w.writerows(csvrows)
     temp=root/'results.csv.tmp';temp.write_text(buf.getvalue());temp.replace(root/'results.csv')
     summary=dict(phase=phase,total=len(rows),counts=counts,quality=qualified,pending_total=sum(r['status'] not in ['complete','failed','missing_input'] for r in rows),
-                 model=config['terra']['model'],resources=resource,updated_utc=now(),coordinator_pid=os.getpid(),running=[{k:r[k] for k in ['episode','pid','gpu','stage']} for r in rows if r['status']=='running'])
+                 model=None if config.get('workflow')=='ablation_no_terra_v5' else config['terra']['model'],resources=resource,updated_utc=now(),coordinator_pid=os.getpid(),running=[{k:r[k] for k in ['episode','pid','gpu','stage']} for r in rows if r['status']=='running'])
+    if config.get('workflow')=='ablation_no_terra_v5':
+        summary['model_review_status']='not_run_ablation';summary['quality']['visual_qualified']=None
     write(root/'summary.json',summary)
     doc='<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="30"><title>Movens-Sim 全402条</title><style>body{font:16px system-ui;background:#171b21;color:#eee;margin:24px}a{color:#8cd3ff}td{padding:8px;border-bottom:1px solid #444}pre{white-space:pre-wrap}</style><h1>Movens-Sim · 402条 h0 静态重建</h1><p>固定 Mount 相机；静态仿真展示，非真实采集、非交互回放。构建、视觉、物理结果分别统计。</p><pre>'+html.escape(json.dumps(summary,ensure_ascii=False,indent=2))+'</pre><a href="results.csv">全402行汇总表</a><table><tr><th>Episode</th><th>状态</th><th>阶段</th><th>产物</th><th>原因</th></tr>'+''.join(cards)+'</table>'
+    if config.get('workflow')=='ablation_no_terra_v5':
+        doc=doc.replace('全402条','无 Terra 消融0/1/2').replace('402条 h0 静态重建','0/1/2 无 Terra 消融').replace('全402行汇总表','三条汇总表')
     p=root/'index.html.tmp';p.write_text(doc);p.replace(root/'index.html');return summary
 
 

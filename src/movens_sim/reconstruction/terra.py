@@ -95,6 +95,8 @@ def bundle(session,metrics,rgb,masks,final=False,delivery_binding=None):
 
 
 def request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_binding=None,client_factory=OpenAI):
+    from .modes import assert_model_allowed
+    assert_model_allowed(session.config)
     from .control import api_slot, record_api_status
     with api_slot(session.config):
         status,parsed=_request_review(session,metrics,rgb,masks,final,enabled,delivery_binding,client_factory)
@@ -103,6 +105,8 @@ def request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_b
 
 
 def _request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_binding=None,client_factory=OpenAI):
+    from .modes import assert_model_allowed
+    assert_model_allowed(session.config)
     existing=session.run/'terra'/(('final_readonly_' if final else 'geometry_')+session.scene.candidate_id())
     if session.scene.classified:
         if session.scene.v5:from .v5_terra import review_key

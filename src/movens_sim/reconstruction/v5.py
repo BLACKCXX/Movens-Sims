@@ -221,7 +221,8 @@ def run_loop(s,enabled):
     return s
 
 
-def finalize(s,enabled):
+def export_and_accept(s):
+    """Shared disk export and fresh independent acceptance; no model decision."""
     run=s.run
     if not (run/'delivery_binding.json').exists():
         row=evaluate(s,pool='render_export',tag='final_selected');rgb,masks=images(s,row)
@@ -251,6 +252,11 @@ def finalize(s,enabled):
     binding=read(run/'delivery_binding.json')
     for name,h in binding['artifacts'].items():
         if sha(run/name)!=h:raise ValueError('Frozen final artifact changed: '+name)
+    return binding
+
+
+def finalize(s,enabled):
+    run=s.run;binding=export_and_accept(s)
     s.scene.stage='final_readonly';s.state['active_category']='final';s.save()
     if not (run/'final_review.json').exists() or not read(run/'final_review.json').get('review'):
         rgb=cv2.cvtColor(cv2.imread(str(run/'final_ego.png')),cv2.COLOR_BGR2RGB)

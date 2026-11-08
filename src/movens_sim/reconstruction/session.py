@@ -24,7 +24,7 @@ class ReconstructionSession:
         task=config['task_group_id']
         budget_id=f"{task}/episode_{read(self.run/'source_manifest.json')['episode']:06}" if config.get('batch',{}).get('enabled') else task
         self.budget=BudgetManager(ROOT/'runs/_task_budgets'/f'{task}.sqlite',budget_id,config['budget'])
-        with self.budget.computation(dict(kind='v5_session_compile')) if config.get('workflow')=='terra_closed_loop_v5' else nullcontext():
+        with self.budget.computation(dict(kind='v5_session_compile')) if config.get('workflow') in ('terra_closed_loop_v5','ablation_no_terra_v5') else nullcontext():
             self.scene=SceneBackend(self.run/'inputs/template_static/scene.xml',self.run/'inputs/template_physics/scene.xml',self.run/'inputs/physics_state_by_name.npz',read(self.run/'initial_parameters.json'),read(self.run/'camera.json'),support_top_only=config.get('initialization',{}).get('mode')=='fk_h0',initialize_supported=config.get('initialization',{}).get('mode')=='fk_h0',config=config)
         if self.scene.v5:
             # The constructor captures environment geometry after its first

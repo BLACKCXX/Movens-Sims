@@ -16,7 +16,7 @@ from movens_sim.reconstruction.v5_diagnostics import extra_views,plots
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--run',required=True);p.add_argument('--output',default='reacceptance/final');a=p.parse_args();run=Path(a.run).resolve();c=read(run/'resolved_config.json')
-    if c['workflow']!='terra_closed_loop_v5' or c['allowed_episodes']!=[0,1,2]:raise ValueError('Only authorized isolated v5 episodes')
+    if c['workflow'] not in ('terra_closed_loop_v5','ablation_no_terra_v5') or c['allowed_episodes']!=[0,1,2]:raise ValueError('Only authorized isolated v5 episodes')
     ep=read(run/'source_manifest.json')['episode'];started=now();folder=run/a.output
     if (folder/'acceptance.json').exists():
         archive=folder.with_name(folder.name+'_history_'+started.replace(':','').replace('+','_'));folder.rename(archive)

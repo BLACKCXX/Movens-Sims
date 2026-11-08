@@ -16,6 +16,7 @@ from .budget import BudgetExceeded
 from .metrics import measure,gate
 from .review_state import dependencies
 from .v5_metrics import OBJECTIVES,objective,POLICY
+from .modes import no_terra
 from ..util import append,read,write,digest,sha,save_rgb,now,CODE_ROOT
 
 GROUPS={
@@ -124,13 +125,23 @@ def guard_failures(s,current,base):
 def physical_key(s):return digest(dict(parameters=dependencies('rest',s.scene.params,s.scene.locked_camera,s.observation['version']),state=sha(s.scene.physics_state),template=sha(s.scene.physics_path),diagnostics=sha(Path(__file__).parent/'diagnostics.py'),backend=sha(Path(__file__).parent/'backend.py'),limits=s.config['rest_acceptance']))
 
 
+def diagnostic_computation(s,detail):
+    # The no-model controller protects the same final time reserve for diagnostics
+    # too. Existing model-driven timing is unchanged; nested leases stay nested.
+    if no_terra(s.config) and not getattr(s.budget,'_time_depth',0) and s.scene.stage not in ('frozen','final_readonly'):
+        left=s.budget.remaining('optimization_seconds')-s.config['v5']['final_compute_reserve_seconds']
+        if left<=0:raise BudgetExceeded('Final acceptance compute reserve')
+        return s.budget.computation(detail,reserve_seconds=left)
+    return s.budget.computation(detail,whole_task_slice=True)
+
+
 def native_rest(s,force=False,folder=None,video=True):
     from .diagnostics import rest_from_disk
     key=physical_key(s);folder=Path(folder) if folder else s.run/'physics_evidence'/key[:20]
     path=folder/'physical_diagnostic.json'
     if path.exists() and not force:
         s.budget.record('diagnostic_cache_hit',dict(physical_fingerprint=key));return read(path),folder
-    with s.budget.computation(dict(kind='v5_native_rest',physical_fingerprint=key),whole_task_slice=True):
+    with diagnostic_computation(s,dict(kind='v5_native_rest',physical_fingerprint=key)):
         xml=s.scene.export(folder/'dynamic',physics=True)
         report=rest_from_disk(xml,folder,s.config,s.budget,video=video)
     return report,folder
@@ -166,7 +177,7 @@ def plate_views(s):
 
 
 def diagnose_issue(s,issue_id,candidate_id,diagnostic='automatic'):
-    with s.budget.computation(dict(kind='complete_v5_diagnosis',issue_id=issue_id),whole_task_slice=True):
+    with diagnostic_computation(s,dict(kind='complete_v5_diagnosis',issue_id=issue_id)):
         value=_diagnose_issue(s,issue_id,candidate_id,diagnostic)
     value['remaining_budget']={k:s.budget.remaining(k) for k in s.config['budget']}
     s.state.setdefault('diagnostics',{})[issue_id]=value;s.save();return value
@@ -199,7 +210,11 @@ def optimize_issue(s,issue_id,objective_id,parameter_group,render_cap,candidate_
     if parameter_group=='cloth_optional':render_cap=min(render_cap,80-int(s.state.get('cloth_optional_used',0)))
     if s.budget.remaining(pool)<1 or s.budget.remaining('optimization_seconds')<=1200 or render_cap<1:return result('budget_exhausted',remaining_budget={k:s.budget.remaining(k) for k in s.config['budget']})
     if not np.isfinite(confidence) or not 0<=confidence<=1:raise SceneError('invalid_confidence','Finite confidence in [0,1] required')
-    if stage=='geometry' and (not evidence or confidence<.7):raise SceneError('evidence_required','Geometry hypothesis requires evidence/confidence >=.7')
+    if stage=='geometry':
+        if no_terra(s.config):
+            from .ablation import validate_numeric_evidence
+            validate_numeric_evidence(s,parameter_group,evidence)
+        elif not evidence or confidence<.7:raise SceneError('evidence_required','Geometry hypothesis requires evidence/confidence >=.7')
     ids=GROUPS[parameter_group];reg={p['id']:p for p in s.scene.registry()};ranges={k:(reg[k]['lower'],reg[k]['upper']) for k in ids}
     for b in bounds or []:
         k=b['param_id']

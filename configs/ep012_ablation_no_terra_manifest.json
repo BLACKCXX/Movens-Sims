@@ -1,0 +1,88 @@
+{
+  "version": "ep012_ablation_no_terra_v1",
+  "created_utc": "2026-11-07T10:49:10.430006+00:00",
+  "frozen": true,
+  "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+  "dataset": "unitree_g1",
+  "selection": "Exactly 0,1,2; v4 warm start only, no inherited checks or reviews",
+  "entries": [
+    {
+      "episode": 0,
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene",
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm",
+      "estimate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/estimate.json",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000000.mp4",
+      "parquet": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000000.parquet",
+      "training_selected": false,
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/videos/main_rgb.mp4",
+      "h0_m": 0.7721160388486943,
+      "source_files": {
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000000.parquet": "6c47e7176707c3e92754fbed51ed0fc72ead9d3314b68cf9ede235c199837700",
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000000.mp4": "7b5e7359b0b8c4a045203790aa120e9049a854c7df1673d3b903e9b6538de29e",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene/scene.xml": "fab56ad651d943f8ee1d111d4a163eaf15759f9d4e96d63b5a4bc7f38caa9dbe",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene/robot.json": "2187e7eb7cc226e96cf8a2a7a96cb7af76de39a33a7539ef087d2ebd2301da7b",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene/prepared_manifest.json": "86dd1752c212c6bea764fbf0d213e03a6da67429dfa771480f7a28e1ddf993f6",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/offset_000mm/scene/batch_construction.json": "f48d29629bbd00993dada76e977d848c3b0d7f5b6e09d7d55ee82bab969944bf",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000000/estimate.json": "7cc1febd34c4bece2c8a7355cec87a71893ac87f6a732143a8f2a2a9aead0b6f"
+      },
+      "input_complete": true,
+      "missing": []
+    },
+    {
+      "episode": 1,
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene",
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm",
+      "estimate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/estimate.json",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000001.mp4",
+      "parquet": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000001.parquet",
+      "training_selected": true,
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/videos/main_rgb.mp4",
+      "h0_m": 0.7594668876031349,
+      "source_files": {
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000001.parquet": "6d1072d40170ec591d16e8f8146959d4521b6ede2b19f6eead111129c8a974e5",
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000001.mp4": "ed9e68201931d3de7eba3afbfcb77d03de4748095d1e5e2320f7ba0d2c79df05",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene/scene.xml": "844345d6a4ad79af2488757c7e3f4733498b1d0dcc8d308faf8cc3846c79fdab",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene/robot.json": "f2a6a69ea6e87a702fb2bf230f8e01d4ef285dea4221acbf6358f83813c6dbd4",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene/prepared_manifest.json": "0eff83d3f82fe663f2739576aff23d4fd61824558264918163938c57854a17ef",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/offset_000mm/scene/batch_construction.json": "05533e38a6284b700dd62ec07f291be024f95b51f2632a1b3e121b7d235fede1",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000001/estimate.json": "9c598ca3d89de986553632b7929c9fff9e77a2e93f3544e58101b341079bc955"
+      },
+      "input_complete": true,
+      "missing": []
+    },
+    {
+      "episode": 2,
+      "data_revision": "d89c126a713c6632432a607c12661546ff4d6ea9",
+      "scene_dir": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene",
+      "candidate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm",
+      "estimate": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/estimate.json",
+      "real_video": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000002.mp4",
+      "parquet": "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000002.parquet",
+      "training_selected": true,
+      "old_sim_video": "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/videos/main_rgb.mp4",
+      "h0_m": 0.7633767572420149,
+      "source_files": {
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/data/chunk-000/episode_000002.parquet": "bdfadbee8055c04ba45c059f540c46c152256a5f596e9ad7de05d35fd03e8644",
+        "/root/autodl-tmp/Movens-Interact/data/apple_raw/d89c126a713c6632432a607c12661546ff4d6ea9/videos/chunk-000/observation.images.ego_view/episode_000002.mp4": "d80358adf093904815c49aaab33f20d90069522fa2074eed33d942745e3b0354",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene/scene.xml": "ddefc7cbf6c8f83486651243313b67e1f8e92293c9a94efeb2cbc77e8a4680f6",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene/robot.json": "751c6f95452d057be435199194f39d32849d1e9c94aed4e2e6b3889c7e1a4506",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene/prepared_manifest.json": "4a3e04b394d55e01c9a4bfb2e39228a71862c4c9876f31178b321ea1e8ce21a7",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/offset_000mm/scene/batch_construction.json": "932c4c3ead39ae0cc2f3e7d3b5cdc444dbb862213ead14b0edf660ad9d737c2e",
+        "/root/autodl-tmp/Movens-Interact/outputs/appletoplate_tableup005mm_20261105T020624Z/episode_000002/estimate.json": "f7fa40d7f8cceeeeb7c38ab43d23e42afe65e4bba00385dc7648d69c4398d7f8"
+      },
+      "input_complete": true,
+      "missing": []
+    }
+  ],
+  "assets_manifest": "/root/autodl-tmp/Movens-Sim/data/full402_h0_v1/shared/assets.json",
+  "source_project": "/root/autodl-tmp/Movens-Interact",
+  "training_selected": 250,
+  "training_excluded": 152,
+  "parent_experiment": "pipeline_refactor_ep000000_v1; different h0 baseline, old ledger retained",
+  "selection_sha256": "0becf10423f237edcae5ac755031f7bf108e14aa40f56e2f6bb1d11afa685a2f",
+  "parent_manifest": "configs/ep012_reconstruction_v4_manifest.json",
+  "task_group_id": "ep012_ablation_no_terra_20261108",
+  "workflow": "ablation_no_terra_v5"
+}
