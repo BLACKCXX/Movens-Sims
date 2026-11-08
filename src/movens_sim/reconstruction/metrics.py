@@ -45,6 +45,9 @@ def measure(rgb, masks, observation, config):
             color[label]=dict(lab_mean_absolute_error=float(np.abs(lab_a[region]-lab_b[region]).mean()),rgb_mean_absolute_error=float(np.abs(rgb.astype(float)[region]-reference.astype(float)[region]).mean()),pixels=int(region.sum()))
         else:color[label]=dict(lab_mean_absolute_error=255.,rgb_mean_absolute_error=255.,pixels=0)
     result['appearance']=color;result['appearance_loss']=float(np.mean([x['lab_mean_absolute_error'] for x in color.values()])/255.)
+    if config.get('workflow')=='terra_closed_loop_v5':
+        from .v5_metrics import appearance_metrics
+        result['v5']=appearance_metrics(rgb,observation)
     return result
 
 

@@ -32,6 +32,10 @@ from ..util import ROOT,CODE_ROOT,append,digest,now,read,save_rgb,sha,video_info
 def identity(run,config):
     code={str(p.relative_to(CODE_ROOT)):sha(p) for p in sorted((CODE_ROOT/'src').rglob('*.py'))}
     for p in [CODE_ROOT/'scripts/movens-sim',CODE_ROOT/'pyproject.toml',CODE_ROOT/'prompts'/(config['terra']['prompt_version']+'.txt')]:code[str(p.relative_to(CODE_ROOT))]=sha(p)
+    for name in config.get('terra',{}).get('templates',{}).values():
+        p=CODE_ROOT/'prompts'/name;code[str(p.relative_to(CODE_ROOT))]=sha(p)
+    if config.get('workflow')=='terra_closed_loop_v5':
+        for p in (CODE_ROOT/'scripts').glob('*v5*.py'):code[str(p.relative_to(CODE_ROOT))]=sha(p)
     return dict(format='mount_joint_v3_identity',code=code,config_sha256=digest(config),source_manifest_sha256=sha(run/'source_manifest.json'),observation_sha256=sha(run/'observation.json'),mujoco=mujoco.__version__)
 
 

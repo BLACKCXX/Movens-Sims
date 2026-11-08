@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 import numpy as np
 import copy
+from contextlib import nullcontext
 from scipy.spatial.transform import Rotation
 
 from .backend import SceneBackend,SceneError
@@ -23,12 +24,20 @@ class ReconstructionSession:
         task=config['task_group_id']
         budget_id=f"{task}/episode_{read(self.run/'source_manifest.json')['episode']:06}" if config.get('batch',{}).get('enabled') else task
         self.budget=BudgetManager(ROOT/'runs/_task_budgets'/f'{task}.sqlite',budget_id,config['budget'])
-        self.scene=SceneBackend(self.run/'inputs/template_static/scene.xml',self.run/'inputs/template_physics/scene.xml',self.run/'inputs/physics_state_by_name.npz',read(self.run/'initial_parameters.json'),read(self.run/'camera.json'),support_top_only=config.get('initialization',{}).get('mode')=='fk_h0',initialize_supported=config.get('initialization',{}).get('mode')=='fk_h0',config=config)
+        with self.budget.computation(dict(kind='v5_session_compile')) if config.get('workflow')=='terra_closed_loop_v5' else nullcontext():
+            self.scene=SceneBackend(self.run/'inputs/template_static/scene.xml',self.run/'inputs/template_physics/scene.xml',self.run/'inputs/physics_state_by_name.npz',read(self.run/'initial_parameters.json'),read(self.run/'camera.json'),support_top_only=config.get('initialization',{}).get('mode')=='fk_h0',initialize_supported=config.get('initialization',{}).get('mode')=='fk_h0',config=config)
+        if self.scene.v5:
+            # The constructor captures environment geometry after its first
+            # provisional compile. Never reuse that pre-capture model when a
+            # warm start restores the same camera and nonzero cloth extents.
+            for cached in self.scene.cache.values():
+                for renderer in cached['renderers'].values():renderer.renderer.close()
+            self.scene.cache.clear()
         self.scene.allow_camera_revision=config['camera'].get('allow_revision',True)
         if self.scene.initial_support_seed and not (self.run/'support_search_seed.json').exists():
             write(self.run/'support_search_seed.json',dict(method='geometric_feasible_XY_seed_v1',updates=self.scene.initial_support_seed,immutable_fk_preserved=True,no_table_or_scale_change=True))
         self.observation=load_observation(run)
-        if self.scene.classified:self.observation['version']+='_render_'+self.scene.render_contract[:12]
+        if self.scene.classified and not self.scene.v5:self.observation['version']+='_render_'+self.scene.render_contract[:12]
         self.state_path=self.run/'session.json'
         self.state=read(self.state_path) if self.state_path.exists() else dict(stage='geometry',shape_enabled=False,plate_tilt_enabled=False,rounds=[],operations=[],geometry_review_passed=False)
         if self.state.get('camera_override'):self.scene.locked_camera=self.state['camera_override']
@@ -47,6 +56,12 @@ class ReconstructionSession:
         if self.scene.classified and self.state.get('candidate_id')!=self.scene.candidate_id():
             from .review_state import invalidate
             invalidate(self.state,self.state.get('params',{}),self.scene.params,self.state.get('camera_override'),self.scene.locked_camera)
+            if self.scene.v5:
+                from .review_state import dependencies
+                for issue in self.state.get('issues',{}).values():
+                    current=dependencies(issue['category'],self.scene.params,self.scene.locked_camera,self.observation['version'])
+                    if issue.get('status')=='resolved' and issue.get('dependency_hash')!=current:
+                        issue.update(status='open',invalidation_reason='scene_dependency_changed')
             self.state['scene_revision']=self.state.get('scene_revision',0)+1
         self.state.update(params=self.scene.params.copy(),camera_override=self.scene.locked_camera,candidate_id=self.scene.candidate_id(),stage=self.scene.stage,shape_enabled=self.scene.shape_enabled,plate_tilt_enabled=getattr(self.scene,'plate_tilt_enabled',False))
         write(self.state_path,self.state)
@@ -56,6 +71,9 @@ class ReconstructionSession:
         return result
 
     def capabilities(self):
+        if self.scene.v5:
+            from .v5_tools import capabilities
+            return capabilities(self)
         if self.scene.classified:
             from .operations import capabilities
             return capabilities(self)
@@ -236,6 +254,13 @@ class ReconstructionSession:
         return repair_support(self,updates,evidence,confidence,candidate_id)
 
     def fit_appearance(self,parameter_ids=None,candidate_id=None):
+        if self.scene.v5:
+            from .v5_tools import optimize_issue,GROUPS,group_stage
+            group=next((g for g,ids in GROUPS.items() if parameter_ids is not None and set(ids)==set(parameter_ids) and group_stage(g)=='appearance'),None) if parameter_ids is not None else 'apple_color'
+            if group is None:raise SceneError('invalid_parameter_subset','Choose an executable v5 appearance group')
+            issue='plate_shading' if group.startswith('plate') else 'cloth_color' if group.startswith('cloth') else 'apple_highlight' if group=='apple_highlight' else 'apple_color'
+            objective='scene_lighting_v5' if group in ('shared_lighting','plate_and_lighting') else dict(plate_shading='plate_shading_v5',cloth_color='cloth_coarse_v5',apple_highlight='apple_highlight_v5',apple_color='apple_color_v5')[issue]
+            return optimize_issue(self,issue,objective,group,128,candidate_id or self.scene.candidate_id())
         from .operations import fit_appearance
         return fit_appearance(self,parameter_ids,candidate_id)
 

@@ -9,6 +9,9 @@ description = "Traceable initial static tabletop reconstruction from real ego ob
 requires-python = ">=3.12,<3.13"
 dependencies = ["mujoco==3.7.0", "numpy==1.26.4", "scipy==1.14.1", "opencv-python-headless==4.10.0.84", "Pillow==11.0.0", "openai==2.54.0", "jsonschema==4.23.0", "python-dotenv==1.0.1", "pyarrow==21.0.0", "mcp==2.3.0"]
 
+[project.optional-dependencies]
+reconstruction-v5 = ["matplotlib==3.9.4", "contourpy==1.3.2", "python-dateutil==2.9.0.post0"]
+
 [project.scripts]
 movens-sim = "movens_sim.pipeline:main"
 

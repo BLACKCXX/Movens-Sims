@@ -20,6 +20,9 @@ from ..util import ROOT,CODE_ROOT,append,read
 
 
 def make_server(session):
+    if session.scene.v5:
+        from .v5_tools import make_server as v5_server
+        return v5_server(session)
     def invoke(name,**kwargs):
         start=time.monotonic()
         with (session.run/'.tool.lock').open('a') as lock:

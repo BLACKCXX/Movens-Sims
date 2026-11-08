@@ -319,7 +319,7 @@ def load_case_scene(result,geometry):
 def labelled_comparison(images,labels):
     panels=[]
     for rgb,label in zip(images,labels):
-        panel=np.zeros((512,640,3),np.uint8);panel[32:]=rgb;cv2.putText(panel,label,(10,22),cv2.FONT_HERSHEY_SIMPLEX,.55,(240,240,240),1,cv2.LINE_AA);panels.append(panel)
+        panel=np.zeros((rgb.shape[0]+32,rgb.shape[1],3),np.uint8);panel[32:]=rgb;cv2.putText(panel,label,(10,22),cv2.FONT_HERSHEY_SIMPLEX,.55,(240,240,240),1,cv2.LINE_AA);panels.append(panel)
     return np.concatenate(panels,axis=1)
 
 

@@ -128,7 +128,7 @@ class BudgetManager:
         return event
 
     @contextlib.contextmanager
-    def computation(self, detail=None, whole_task_slice=False):
+    def computation(self, detail=None, whole_task_slice=False, reserve_seconds=None):
         # Reserve a bounded active-wall lease before computation. On a crash the
         # outstanding lease stays charged. Completed leases record actual time.
         if getattr(self,'_time_depth',0):
@@ -139,7 +139,7 @@ class BudgetManager:
         left = self.remaining('optimization_seconds')
         if left <= 0:
             raise BudgetExceeded('optimization_seconds')
-        lease = left if whole_task_slice else min(120., left)
+        lease = min(left,reserve_seconds) if reserve_seconds is not None else (left if whole_task_slice else min(120., left))
         event = self.reserve('optimization_seconds', lease, detail)
         start = time.monotonic()
         self._time_depth=1

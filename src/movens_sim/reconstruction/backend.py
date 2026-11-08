@@ -120,7 +120,7 @@ class SupportSurface:
 
 class SceneBackend:
     def __init__(self, static_xml, physics_xml=None, physics_state=None, initial=None, camera=None, support_top_only=False, initialize_supported=False, config=None):
-        self.config=config or {};self.classified=self.config.get('workflow')=='classified_reconstruction_v4'
+        self.config=config or {};self.v5=self.config.get('workflow')=='terra_closed_loop_v5';self.classified=self.config.get('workflow') in ('classified_reconstruction_v4','terra_closed_loop_v5')
         self.support_limits=self.config.get('initial_support',dict(gap_min_m=-.001,gap_max_m=.002,pair_penetration_m_max=.001))
         self.path=Path(static_xml);self.physics_path=Path(physics_xml) if physics_xml else None
         self.physics_state=Path(physics_state) if physics_state else None
@@ -130,7 +130,9 @@ class SceneBackend:
         self.asset_hashes={node.get('file'):sha((self.path.parent/node.get('file')).resolve()) for node in authored.findall('./asset/*') if node.get('file')}
         self.source_hash=digest(dict(xml=sha(self.path),assets=self.asset_hashes));self.cache=OrderedDict();self.stage='geometry';self.shape_enabled=False
         if self.classified:
-            self.render_contract=digest({name:sha(Path(__file__).parent/name) for name in ('backend.py','environment.py','appearance.py')})
+            contract_files=[Path(__file__).parent/name for name in ('backend.py','environment.py','appearance.py')]
+            if self.v5:contract_files += [Path(__file__).parent/'v5_material.py',Path(__file__).parent/'v5_metrics.py',Path(__file__).parent.parent/'render.py']
+            self.render_contract=digest({p.name:sha(p) for p in contract_files})
             self.source_hash=digest(dict(source=self.source_hash,render_contract=self.render_contract))
         self.render_passes=0;self.initial_poses={};self.locked_camera=camera
         self.params={}
@@ -140,6 +142,9 @@ class SceneBackend:
             self.initial_poses[label]=dict(xyz_m=xyz,quaternion_wxyz=q)
             self.params.update({label+'.x':float(xyz[0]),label+'.y':float(xyz[1]),label+'.scale':1.,label+'.rx':0.,label+'.ry':0.})
         self.params.update({'apple.rz':0.,'plate.depth_ratio':1.,'light.ambient':.35,'light.diffuse':.6,'cloth.gray':.36,'plate.albedo':.8,'material.specular':1.,'material.shininess':1.,'apple.tint_r':1.,'apple.tint_g':1.,'apple.tint_b':1.,'apple.yellow_mix':0.})
+        if self.v5:
+            from .v5_material import defaults
+            self.params.update(defaults(self.template))
         if initial:self.params.update(initial)
         self._activate(self.params, solve=False)
         vertices=[];faces=[];offset=0
@@ -199,6 +204,11 @@ class SceneBackend:
             for key,lo,hi in [('table.depth_scale',1.,2.5),('table.width_scale',1.,1.6),('table.front_extension',0.,.15),('cloth.coverage',0.,1.)]:
                 add(key,'m' if key.endswith('extension') else 'ratio',lo,hi,['geometry'],'Absolute world-plane extent; physical soft patch is never stretched; display cloth cannot support objects')
         for id,lo,hi in [('light.ambient',.1,.8),('light.diffuse',.1,1.),('cloth.gray',.1,.65),('plate.albedo',.45,1.),('material.specular',0.,1.6),('material.shininess',.2,2.),('apple.tint_r',.3,1.6),('apple.tint_g',.3,1.6),('apple.tint_b',.3,1.6),('apple.yellow_mix',0.,.8)]:add(id,'ratio' if 'tint' in id or 'mix' in id or 'material' in id else 'linear_rgb_or_phong',lo,hi,['appearance'],'Renderer-supported appearance control; material values multiply their immutable authored baselines; geometry locked')
+        if self.v5:
+            from .v5_material import registry
+            entries += registry(self.params)
+            for p in entries:
+                p['dependencies']=['geometry','physical','appearance'] if 'geometry' in p['stages'] else ['appearance']
         return entries
 
     def registry(self):return copy.deepcopy(self.registry_entries)
@@ -251,6 +261,9 @@ class SceneBackend:
                         img=np.array(Image.open(tex.get('file')).convert('RGB'),float)/255.;yy=np.linspace(1.,0.,img.shape[0])[:,None,None]
                         mix=params['apple.yellow_mix']*yy;lum=img.max(2,keepdims=True);yellow=lum*np.array([1.,.83,.12]);rgb=np.clip((1-mix)*img+mix*yellow,0,1)
                         buf=io.BytesIO();Image.fromarray((rgb*255).astype(np.uint8)).save(buf,format='PNG');filename='v3_apple_texture.png';virtual[filename]=buf.getvalue();tex.set('file',filename)
+        if self.v5:
+            from .v5_material import apply_material
+            apply_material(self,root,virtual,params)
         return root,virtual
 
     def _activate(self, params, solve=True):
@@ -363,8 +376,15 @@ class SceneBackend:
                 for name,adr,n in zip(z['joint_names'],z['qpos_addresses'],z['qpos_sizes']):
                     if str(name) in ('apple_freejoint','plate_freejoint'):continue
                     j=model.joint(str(name)).id;a=int(model.jnt_qposadr[j]);data.qpos[a:a+int(n)]=z['qpos'][int(adr):int(adr)+int(n)]
-        data.qvel[:]=0;mujoco.mj_forward(model,data)
-        np.savez_compressed(path.with_suffix('.state.npz'),qpos=data.qpos,qvel=data.qvel,time=np.array(0.))
+        if self.v5 and physics and self.physics_state:
+            with np.load(self.physics_state) as z:
+                if 'dof_addresses' in z:
+                    for name,adr,n in zip(z['joint_names'],z['dof_addresses'],z['dof_sizes']):
+                        j=model.joint(str(name)).id;a=int(model.jnt_dofadr[j]);data.qvel[a:a+int(n)]=z['qvel'][int(adr):int(adr)+int(n)]
+                data.time=float(z['time']) if 'time' in z else 0.
+        else:data.qvel[:]=0
+        mujoco.mj_forward(model,data)
+        np.savez_compressed(path.with_suffix('.state.npz'),qpos=data.qpos,qvel=data.qvel,time=np.array(data.time))
         write(out/'parameters.json',self.params);write(out/'provenance.json',dict(candidate_id=self.candidate_id(),source_sha256=self.source_hash,xml_sha256=sha(path),resource_closure=closure,mass_policy='Source density preserved: uniform mass s^3, inertia s^5; anisotropic depth uses affine second moments or compiler inferred density; unmeasured',physics=physics))
         return path
 

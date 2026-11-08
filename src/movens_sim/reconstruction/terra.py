@@ -23,6 +23,9 @@ ACTION_TOOLS=['fit_geometry','propose_or_apply_object_update','update_shape_or_a
 
 
 def response_schema(scene,final=False):
+    if getattr(scene,'v5',False):
+        from .v5_terra import response_schema as schema
+        return schema(scene,final)
     if getattr(scene,'classified',False):
         from .classified_terra import response_schema as categorical_schema
         return categorical_schema(scene,final)
@@ -37,6 +40,9 @@ def response_schema(scene,final=False):
 
 
 def validate_review(parsed,session,final=False):
+    if session.scene.v5:
+        from .v5_terra import validate_review as validate
+        return validate(parsed,session,final)
     if session.scene.classified:
         from .classified_terra import validate_review as categorical_validate
         return categorical_validate(parsed,session,final)
@@ -63,6 +69,9 @@ def validate_review(parsed,session,final=False):
 
 
 def bundle(session,metrics,rgb,masks,final=False,delivery_binding=None):
+    if session.scene.v5:
+        from .v5_terra import bundle as v5_bundle
+        return v5_bundle(session,metrics,rgb,masks,final,delivery_binding)
     if session.scene.classified:
         from .classified_terra import bundle as categorical_bundle
         return categorical_bundle(session,metrics,rgb,masks,final,delivery_binding)
@@ -96,7 +105,8 @@ def request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_b
 def _request_review(session,metrics,rgb,masks,final=False,enabled=True,delivery_binding=None,client_factory=OpenAI):
     existing=session.run/'terra'/(('final_readonly_' if final else 'geometry_')+session.scene.candidate_id())
     if session.scene.classified:
-        from .classified_terra import review_key
+        if session.scene.v5:from .v5_terra import review_key
+        else:from .classified_terra import review_key
         existing=session.run/'terra'/review_key(session,final)
     for statusfile in sorted(existing.glob('attempt_*/status.json')):
         status=read(statusfile)

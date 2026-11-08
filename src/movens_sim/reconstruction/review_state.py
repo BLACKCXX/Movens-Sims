@@ -5,7 +5,7 @@ CATEGORIES=('observation','geometry','initial_support','appearance','rest')
 
 
 def dependencies(category,params,camera,observation_version):
-    geometry={k:v for k,v in params.items() if k.startswith(('apple.','plate.')) and not k.startswith(('apple.tint_','apple.yellow_mix','plate.albedo'))}
+    geometry={k:v for k,v in params.items() if k in {f'{label}.{field}' for label in ('apple','plate') for field in ('x','y','scale','rx','ry','rz','depth_ratio')}}
     environment={k:v for k,v in params.items() if k.startswith('table.') or k=='cloth.coverage'}
     appearance={k:v for k,v in params.items() if k not in geometry and k not in environment}
     physical=dict(geometry=geometry,table=environment)

@@ -164,10 +164,12 @@ def main(argv=None):
         m=discover(config['source_project']);print([e['episode'] for e in m['entries']]);return
     manifest=read(ROOT/config['manifest']);entries=[e for e in manifest['entries'] if args.episode is None or e['episode']==args.episode]
     if not entries:p.error('Episode is not in the frozen manifest')
-    if config.get('workflow') in ('mount_joint_v3','classified_reconstruction_v4'):
+    if config.get('workflow') in ('mount_joint_v3','classified_reconstruction_v4','terra_closed_loop_v5'):
         from .reconstruction.workflow import run_pipeline
         if config.get('workflow')=='classified_reconstruction_v4':
             from .reconstruction.classified import run_pipeline
+        if config.get('workflow')=='terra_closed_loop_v5':
+            from .reconstruction.v5 import run_pipeline
         if args.episode is None and not args.dry_run:p.error('v3 pilot requires an explicit --episode; no implicit batch run')
         if args.concurrency!=1:p.error('Use the durable full-batch coordinator for concurrency; per-episode workers use concurrency=1')
         for entry in entries:

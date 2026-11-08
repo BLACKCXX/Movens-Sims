@@ -50,7 +50,7 @@ def setup(config):
     for record in read(m['assets_manifest']).values():
         asset=Path(record['path'])
         if sha(asset)!=record['sha256']:raise ValueError('Shared input asset changed: '+str(asset))
-        if config.get('workflow')!='classified_reconstruction_v4':asset.chmod(0o444)
+        if config.get('workflow') not in ('classified_reconstruction_v4','terra_closed_loop_v5'):asset.chmod(0o444)
     target=root/'resolved_config.json'
     if target.exists() and read(target)!=config:raise ValueError('Batch config changed; resume cannot relabel prior work or budgets')
     write(target,config)
@@ -60,6 +60,8 @@ def setup(config):
         for folder in ('src','prompts','configs'):
             shutil.copytree(CODE_ROOT/folder,frozen/folder,ignore=shutil.ignore_patterns('__pycache__'))
         (frozen/'scripts').mkdir();shutil.copy2(CODE_ROOT/'scripts/movens-sim',frozen/'scripts/movens-sim');shutil.copy2(CODE_ROOT/'pyproject.toml',frozen/'pyproject.toml')
+        if config.get('workflow')=='terra_closed_loop_v5':
+            for p in (CODE_ROOT/'scripts').glob('*v5*.py'):shutil.copy2(p,frozen/'scripts'/p.name)
         write(root/'code_ready.json',{str(p.relative_to(frozen)):sha(p) for p in frozen.rglob('*') if p.is_file()})
     verify_code(root)
     with connect(root) as db:
@@ -106,6 +108,8 @@ def worker(config,ep,attempt):
     from .reconstruction.workflow import run_pipeline
     if config.get('workflow')=='classified_reconstruction_v4':
         from .reconstruction.classified import run_pipeline
+    if config.get('workflow')=='terra_closed_loop_v5':
+        from .reconstruction.v5 import run_pipeline
     from .reconstruction.control import BatchPaused
     root=ROOT/config['run_root'];run=root/f'episode_{ep:06}';receipt=_receipt(root,ep,attempt);start=time.monotonic()
     entry=next(e for e in read(ROOT/config['manifest'])['entries'] if e['episode']==ep)
